@@ -99,10 +99,13 @@ export function scoreProject(milestones, tasks, now = new Date()) {
   };
 }
 
+// `color` is the vivid dot/fill; `ink` is the readable text step (the vivid
+// amber is far too low-contrast to set text in). `shape` gives each status a
+// second, non-colour channel — see StatusBadge in app.js.
 export const STATUS_META = {
-  green: { label: "On Track", color: "var(--good)", soft: "var(--good-soft)" },
-  yellow: { label: "At Risk", color: "var(--warning)", soft: "var(--warning-soft)" },
-  red: { label: "Behind", color: "var(--critical)", soft: "var(--critical-soft)" },
+  green:  { label: "On Track", color: "var(--good)",     soft: "var(--good-soft)",     ink: "var(--good-ink)",     shape: "shape-green" },
+  yellow: { label: "At Risk",  color: "var(--warning)",  soft: "var(--warning-soft)",  ink: "var(--warning-ink)",  shape: "shape-yellow" },
+  red:    { label: "Behind",   color: "var(--critical)", soft: "var(--critical-soft)", ink: "var(--critical-ink)", shape: "shape-red" },
 };
 
 export const ROLE_LABELS = {

@@ -116,15 +116,108 @@ step. This version does the same job with far less moving pieces:
   for single-family vs. apartment projects, same Schedule Source page for
   linking Ressio.
 
+## Step 8 — Roles + live Ressio sync (the second SQL file)
+
+This part came after the first launch. Paste
+`step2-roles-and-sync-PRIVATE.sql` into the Supabase SQL Editor and click
+**Run**, exactly like Step 1.
+
+⚠️ That file contains a password, so unlike everything else here, **don't
+upload it to GitHub** — run it, then delete it. (If it ends up there by
+accident, just tell me and I'll issue a new one.)
+
+What it turns on:
+
+**A Team page.** A new tab appears in the top nav, visible only to
+admins. It lists everyone who has signed in, with a dropdown to change
+each person's role. That's what decides whose name a task shows up under
+on the PM Checklist and in the daily email.
+
+Two guardrails are built in, and they're enforced by the database itself
+rather than just hidden in the page — so they hold even if someone
+technical pokes at the site in their browser:
+
+- Only admins can change roles. Nobody can promote themselves.
+- Nobody can change their *own* role, admins included. That's what stops
+  someone accidentally removing the last admin and locking everyone out.
+  (If it ever needs doing, Supabase's **Table Editor → employees** can
+  always override.)
+
+The SQL also makes `danny@stack.llc` an admin. If you hadn't signed in
+yet when you ran it, sign in once and then re-run just that one line.
+
+**The Ressio sync plumbing.** Two database functions the daily sync job
+calls. Worth knowing why they exist: the sync runs as a scheduled Claude
+task, which isn't a signed-in employee, so it can't use the normal
+`@stack.llc` rule. The usual shortcut is to hand such a job Supabase's
+`service_role` key — but that key can read and write every table with no
+restrictions. Instead the sync gets its own password that can do exactly
+two things: read which milestones are linked to Ressio, and write
+schedule dates back. If it ever leaked, that's the whole blast radius.
+
+Once that's run, tell me and I'll create the scheduled task itself (it
+lives in your Claude account, not in this website).
+
+## Project Selections
+
+A **Selections** tab holds every finish decision for a build in one place.
+Pick a project and you get its selection sheet: 15 categories grouped into
+Exterior, Kitchen & Bath, Flooring, and Interior Finishes, each an open box
+you type into. Each one carries a prompt about what the trades actually
+need — not just "Interior Paint" but a reminder to give walls, ceilings,
+trim and doors, with brand, code and sheen.
+
+Things worth knowing:
+
+- **There's no save button.** A box saves when you click out of it, and a
+  small "Saved" appears next to the label. That's one write per edit
+  instead of one per keystroke, and nothing is lost because leaving the
+  field is what commits it.
+- **Everyone sees the same sheet.** It's one shared answer per project, not
+  a personal copy, so whoever opens it gets the current decision.
+- **The project list shows how far along each one is** (e.g. "4 of 15
+  filled in"), so it's obvious at a glance which builds still need
+  decisions.
+- **Final rendering.** Each sheet has a spot to upload the rendering, and
+  it displays right on the page. Re-uploading replaces the old one rather
+  than piling up files.
+
+The rendering images live in a **private** storage bucket, not a public
+one. Public buckets are the easy default, but anyone who ever saw a URL
+would keep access to it forever — and these are client-facing design
+documents. Instead the app requests a short-lived link each time someone
+with a valid `@stack.llc` login opens the page.
+
+**Adding or changing a category later** is a code change only — edit
+`src/selections.js` and re-deploy. No database change is needed, because
+selections are stored as one row per category rather than one column each.
+The one rule: change a category's `label` freely, but don't change its
+`key`, since that's what everything already typed is filed under.
+
+## How the daily Ressio sync works
+
+Every morning, a scheduled Claude task wakes up, reads each project's
+current schedule from Ressio, and writes the dates back into the
+dashboard. A few things worth understanding:
+
+- **It only touches milestones you've linked** on the Schedule Source
+  page. Link another one there and the next morning's sync picks it up
+  automatically — nothing needs re-configuring.
+- **The first sync after linking a milestone records Ressio's date as the
+  baseline** — the "planned finish." After that, the baseline is frozen,
+  and only a Ressio task reaching 100% moves the *actual* finish date.
+  This is the bit that makes "15 days behind" mean anything: if
+  re-scheduling in Ressio also moved the planned date, every project
+  would always look perfectly on time.
+- **It's once a day, not live to the second** — which matches the weekly
+  team review and daily-digest rhythm anyway.
+
 ## Still to come
 
-- **Live Ressio sync + daily task-due emails.** Same plan as before: a
-  scheduled Claude task reads your Ressio schedule once a day and writes
-  the results straight into Supabase (using its REST API with a
-  `service_role` key, which never appears anywhere in this website's
-  files), then emails each employee their due tasks. I'll set this up
-  once the site above is live — just say the word.
-- **Changing someone's role** (e.g. promoting someone to Admin) isn't a
-  button in the app yet — for now, do it directly in Supabase's **Table
-  Editor → employees → role** column. A proper admin screen can be added
-  later if it'd help.
+- **Daily task-due emails.** The same scheduled task can email each
+  person their due, newly-unlocked, and overdue tasks each morning. Say
+  the word and I'll add it.
+- **Three projects have no schedule in Ressio yet** (Lot 17 Knoll
+  Subdivision, Knoll Sub Phase 2, Elevate at 12th Phase 1). The sync will
+  start tracking them the moment a schedule exists there and its
+  milestones get linked on the Schedule Source page.

@@ -1,10 +1,11 @@
 import { h, render } from "preact";
-import { useState, useEffect, useCallback } from "preact/hooks";
+import { useState, useEffect, useCallback, useRef } from "preact/hooks";
 import htm from "htm";
 import { supabase } from "./supabase.js";
 import * as api from "./api.js";
 import { templatesFor, SINGLE_FAMILY_MILESTONES, SINGLE_FAMILY_TASKS, APARTMENT_MILESTONES, APARTMENT_TASKS } from "./templates.js";
 import { scoreProject, deriveMilestones, deriveTasks, STATUS_META, ROLE_LABELS, ROLE_COLORS, fmt, fmtShort } from "./health.js";
+import { SELECTION_CATEGORIES, ALL_SELECTION_KEYS } from "./selections.js";
 
 const html = htm.bind(h);
 
@@ -24,16 +25,22 @@ function navigate(path) {
 }
 
 // ---------- shared bits ----------
+// Status is the one place colour survives the black-and-white scheme. It is
+// never colour alone: each badge carries a written label AND a distinct dot
+// shape (circle / diamond / square), so it still reads in greyscale, in
+// print, and for colourblind viewers.
 function StatusBadge({ status }) {
   const meta = STATUS_META[status];
-  return html`<span class="badge" style=${{ background: meta.soft, color: meta.color }}>
-    <span class="dot" style=${{ background: meta.color }}></span>${meta.label}
+  return html`<span class="badge" style=${{ background: meta.soft, color: meta.ink }}>
+    <span class=${"dot " + meta.shape} style=${{ background: meta.color }}></span>${meta.label}
   </span>`;
 }
 
+// Roles are monochrome — the written label carries the identity, so no
+// colour is needed and the chrome stays black and white.
 function RoleTag({ role }) {
-  return html`<span class="role-tag" style=${{ color: ROLE_COLORS[role] }}>
-    <span class="role-dot" style=${{ background: ROLE_COLORS[role] }}></span>${ROLE_LABELS[role] ?? role}
+  return html`<span class="role-tag">
+    <span class="role-dot"></span>${ROLE_LABELS[role] ?? role}
   </span>`;
 }
 
@@ -43,15 +50,18 @@ function Nav({ employee }) {
     html`<a href=${"#/" + path} class="nav-tab ${route === path || (path === "" && route === "") ? "active" : ""}">${label}</a>`;
   return html`
     <div class="topbar">
-      <div>
-        <div class="brand">Stack Built</div>
-        <div class="brand-sub">Project Health Dashboard</div>
-      </div>
+      <a class="brand-mark" href="#/">
+        <img class="brand-logo" src="assets/logo-black.png" alt="Stack Built" />
+        <span class="brand-divider"></span>
+        <span class="brand-sub">Project Health</span>
+      </a>
       <div class="nav-tabs">
         ${tab("", "Portfolio")}
         ${tab("checklist", "PM Checklist")}
         ${tab("templates", "Templates")}
         ${tab("schedule", "Schedule Source")}
+        ${tab("selections", "Selections")}
+        ${employee?.role === "ADMIN" && tab("team", "Team")}
       </div>
       <div class="who">
         <span>${employee?.name ?? ""}</span>
@@ -65,14 +75,14 @@ function Nav({ employee }) {
 function Login() {
   return html`
     <div class="login-wrap">
-      <div class="surface login-card">
-        <div class="brand">Stack Built</div>
-        <div class="brand-sub">Project Health Dashboard</div>
+      <div class="login-card">
+        <img class="login-logo" src="assets/logo-black.png" alt="Stack Built" />
+        <div class="login-title">Project Health Dashboard</div>
+        <div class="login-sub">Sign in to see where every build stands.</div>
         <button class="btn-primary" onClick=${() => api.signInWithGoogle()}>Sign in with Google</button>
-        <div class="ink-muted" style=${{ fontSize: "12px", marginTop: "10px" }}>
-          Only ${"@stack.llc"} accounts can sign in.
-        </div>
+        <div class="login-note">Restricted to ${"@stack.llc"} accounts.</div>
       </div>
+      <div class="login-footer">The Foundry · Logan, Utah</div>
     </div>
   `;
 }
@@ -95,9 +105,9 @@ function Portfolio() {
     <div>
       <div class="stat-row">
         <div class="stat-tile"><div class="stat-num">${scored.length}</div><div class="stat-label">Active Projects</div></div>
-        <div class="stat-tile"><div class="stat-num" style=${{ color: "var(--good)" }}>${counts.green}</div><div class="stat-label">On Track</div></div>
-        <div class="stat-tile"><div class="stat-num" style=${{ color: "var(--warning)" }}>${counts.yellow}</div><div class="stat-label">At Risk</div></div>
-        <div class="stat-tile"><div class="stat-num" style=${{ color: "var(--critical)" }}>${counts.red}</div><div class="stat-label">Behind</div></div>
+        <div class="stat-tile"><div class="stat-num">${counts.green}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--good)" }}></span>On Track</div></div>
+        <div class="stat-tile"><div class="stat-num">${counts.yellow}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--warning)" }}></span>At Risk</div></div>
+        <div class="stat-tile"><div class="stat-num">${counts.red}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--critical)" }}></span>Behind</div></div>
       </div>
       ${totalOverdue > 0 && html`
         <div class="alert-banner">
@@ -120,12 +130,12 @@ function Portfolio() {
               </div>
               <div class="project-current">Currently: <strong>${current?.name}</strong></div>
               <div class="project-metrics">
-                <span style=${{ color: s.health.varianceDays > 0 ? "var(--critical)" : "var(--good)" }}>
+                <span style=${{ color: s.health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>
                   ${s.health.varianceDays > 0 ? `${s.health.varianceDays}d behind` : `${Math.abs(s.health.varianceDays)}d ahead`}
                 </span>
                 <span class="ink-muted">${s.health.completionPct}% tasks complete</span>
               </div>
-              <div class="progress-track"><div class="progress-fill" style=${{ width: s.health.completionPct + "%", background: STATUS_META[s.health.status].color }}></div></div>
+              <div class="progress-track"><div class="progress-fill" style=${{ width: s.health.completionPct + "%" }}></div></div>
               ${nextTask && html`
                 <div class="project-next">
                   <span class="ink-muted">Next up: ${nextTask.title.length > 34 ? nextTask.title.slice(0, 34) + "…" : nextTask.title}</span>
@@ -171,9 +181,9 @@ function ProjectDetail({ id, employee }) {
         </div>
         <div class="metric-row">
           <div><div class="ink-muted metric-label">Health Score</div><div class="metric-value">${health.score}/100</div></div>
-          <div><div class="ink-muted metric-label">Schedule</div><div class="metric-value" style=${{ color: health.varianceDays > 0 ? "var(--critical)" : "var(--good)" }}>${health.varianceDays > 0 ? `${health.varianceDays}d behind` : `${Math.abs(health.varianceDays)}d ahead`}</div></div>
+          <div><div class="ink-muted metric-label">Schedule</div><div class="metric-value" style=${{ color: health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>${health.varianceDays > 0 ? `${health.varianceDays}d behind` : `${Math.abs(health.varianceDays)}d ahead`}</div></div>
           <div><div class="ink-muted metric-label">Tasks Complete</div><div class="metric-value">${health.completionPct}%</div></div>
-          <div><div class="ink-muted metric-label">Overdue</div><div class="metric-value" style=${{ color: health.overdue.length ? "var(--critical)" : undefined }}>${health.overdue.length}</div></div>
+          <div><div class="ink-muted metric-label">Overdue</div><div class="metric-value" style=${{ color: health.overdue.length ? "var(--critical-ink)" : undefined }}>${health.overdue.length}</div></div>
         </div>
         ${health.deductions.length > 0 && html`
           <div class="why-box">
@@ -193,7 +203,7 @@ function ProjectDetail({ id, employee }) {
                 <div class="timeline-name">${m.name} ${!m.ressio_line_item_id && html`<span class="ink-muted" style=${{ fontWeight: 400, fontSize: "12px" }}> · not linked to Ressio yet</span>`} ${m.status === "ACTIVE" && html`<span class="in-progress-pill">In progress</span>`}</div>
                 <div class="ink-muted timeline-dates">
                   ${m.status === "DONE" ? html`Planned ${fmtShort(m.planned_finish)} · Done ${fmtShort(m.actual_finish)}` : html`Planned finish ${fmtShort(m.planned_finish)}`}
-                  ${m.status === "ACTIVE" && html` · <span style=${{ color: "var(--critical)" }}>${(() => { const v = Math.round((Date.now() - new Date(m.planned_finish).getTime()) / 86400000); return v > 0 ? `${v}d behind` : `${Math.abs(v)}d ahead`; })()}</span>`}
+                  ${m.status === "ACTIVE" && html` · <span style=${{ color: "var(--critical-ink)" }}>${(() => { const v = Math.round((Date.now() - new Date(m.planned_finish).getTime()) / 86400000); return v > 0 ? `${v}d behind` : `${Math.abs(v)}d ahead`; })()}</span>`}
                 </div>
               </div>
             </div>
@@ -216,7 +226,7 @@ function ProjectDetail({ id, employee }) {
                     <div class="task-title">${t.title} ${t.critical && html`<span class="long-lead">long-lead</span>`}</div>
                     <div class="ink-muted task-meta">
                       ${t.deliverable}
-                      ${t.status === "LOCKED" ? " · locked until milestone completes" : t.dueDate ? html` · due ${fmtShort(t.dueDate)}${t.status === "ACTIVE" && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical)" }}>overdue</span>` : ""}` : ""}
+                      ${t.status === "LOCKED" ? " · locked until milestone completes" : t.dueDate ? html` · due ${fmtShort(t.dueDate)}${t.status === "ACTIVE" && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical-ink)" }}>overdue</span>` : ""}` : ""}
                     </div>
                   </div>
                   <${RoleTag} role=${t.role} />
@@ -276,7 +286,7 @@ function Checklist({ employee }) {
               <div class="task-title">${t.title}</div>
               <div class="ink-muted task-meta">
                 ${t.project.name} · ${t.deliverable} ${t.dueDate ? html`· due ${fmtShort(t.dueDate)}` : ""}
-                ${t.status === "ACTIVE" && t.dueDate && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical)" }}>overdue</span>` : ""}
+                ${t.status === "ACTIVE" && t.dueDate && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical-ink)" }}>overdue</span>` : ""}
               </div>
             </div>
             <${RoleTag} role=${t.role} />
@@ -363,6 +373,251 @@ function ScheduleSource() {
   `;
 }
 
+// ---------- Selections: pick a project ----------
+function SelectionsIndex() {
+  const [state, setState] = useState(null);
+  useEffect(() => {
+    Promise.all([api.getProjects(), api.getAllSelections()]).then(([rows, sels]) => setState({ rows, sels }));
+  }, []);
+  if (!state) return html`<div class="loading">Loading projects…</div>`;
+
+  const filledByProject = {};
+  for (const s of state.sels) {
+    if ((s.value ?? "").trim()) (filledByProject[s.project_id] ??= new Set()).add(s.key);
+  }
+  const total = ALL_SELECTION_KEYS.length;
+
+  return html`
+    <div>
+      <div class="ink-muted" style=${{ fontSize: "13px", marginBottom: "14px" }}>
+        Every selection for a build, in one place. Pick a project to open its selection sheet.
+      </div>
+      <div class="card-grid">
+        ${state.rows.map(({ project }) => {
+          const done = filledByProject[project.id]?.size ?? 0;
+          const pct = Math.round((done / total) * 100);
+          return html`
+            <a class="project-card" href=${"#/selections/" + project.id}>
+              <div class="project-card-head">
+                <div>
+                  <div class="project-name">${project.name}</div>
+                  <div class="ink-muted project-sub">${project.client} · ${project.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"}</div>
+                </div>
+                ${project.rendering_path && html`<span class="role-tag">Rendering</span>`}
+              </div>
+              <div class="project-metrics">
+                <span>${done} of ${total} filled in</span>
+                <span class="ink-muted">${pct}%</span>
+              </div>
+              <div class="progress-track"><div class="progress-fill" style=${{ width: pct + "%" }}></div></div>
+            </a>
+          `;
+        })}
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Selections: one project's sheet ----------
+function SelectionField({ projectId, item, initial, employee }) {
+  const [value, setValue] = useState(initial?.value ?? "");
+  const [state, setState] = useState("idle"); // idle | saving | saved | error
+  const savedRef = useRef(initial?.value ?? "");
+
+  // Saves when you click away rather than on every keystroke — one write
+  // per edit instead of dozens, and nothing is lost because leaving the
+  // field is what commits it.
+  async function commit() {
+    if (value === savedRef.current) return;
+    setState("saving");
+    try {
+      await api.saveSelection(projectId, item.key, value, employee.id);
+      savedRef.current = value;
+      setState("saved");
+      setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 2200);
+    } catch (e) {
+      setState("error");
+    }
+  }
+
+  return html`
+    <div class="selection-field">
+      <div class="selection-head">
+        <label class="selection-label" for=${"sel-" + item.key}>${item.label}</label>
+        <span class=${"save-flag " + state}>
+          ${state === "saving" ? "Saving…" : state === "saved" ? "Saved" : state === "error" ? "Not saved — try again" : ""}
+        </span>
+      </div>
+      <div class="selection-hint">${item.hint}</div>
+      <textarea id=${"sel-" + item.key} class="selection-input" rows="3"
+        placeholder="Type the selection here…"
+        value=${value}
+        onInput=${(e) => setValue(e.target.value)}
+        onBlur=${commit}></textarea>
+    </div>
+  `;
+}
+
+function ProjectSelections({ id, employee }) {
+  const [project, setProject] = useState(null);
+  const [byKey, setByKey] = useState(null);
+  const [renderUrl, setRenderUrl] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+
+  const load = useCallback(async () => {
+    const detail = await api.getProjectDetail(id);
+    setProject(detail.project);
+    setByKey(await api.getProjectSelections(id));
+    setRenderUrl(await api.getRenderingUrl(detail.project?.rendering_path));
+  }, [id]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!project || !byKey) return html`<div class="loading">Loading selections…</div>`;
+
+  async function onPickFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    if (!file.type.startsWith("image/")) { setUploadError("That file isn't an image."); return; }
+    if (file.size > 15 * 1024 * 1024) { setUploadError("That image is over 15 MB — please use a smaller file."); return; }
+    setUploading(true);
+    try {
+      await api.uploadRendering(id, file);
+      await load();
+    } catch (err) {
+      setUploadError(err.message || String(err));
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  async function onRemove() {
+    setUploading(true);
+    try { await api.removeRendering(id, project.rendering_path); await load(); }
+    finally { setUploading(false); }
+  }
+
+  const filled = ALL_SELECTION_KEYS.filter((k) => (byKey[k]?.value ?? "").trim()).length;
+
+  return html`
+    <div>
+      <a href="#/selections" class="back-link">← All projects</a>
+
+      <div class="surface panel">
+        <div class="detail-head">
+          <div>
+            <div class="project-name" style=${{ fontSize: "20px" }}>${project.name}</div>
+            <div class="ink-muted">${project.client} · Selections</div>
+          </div>
+          <span class="role-tag">${filled} of ${ALL_SELECTION_KEYS.length} filled in</span>
+        </div>
+      </div>
+
+      <div class="surface panel">
+        <div class="panel-title">Final Rendering</div>
+        ${renderUrl
+          ? html`
+            <div class="rendering-wrap">
+              <img class="rendering-img" src=${renderUrl} alt=${"Final rendering — " + project.name} />
+            </div>
+            <div class="rendering-actions">
+              <label class="pill-btn">
+                Replace image
+                <input type="file" accept="image/*" onChange=${onPickFile} style=${{ display: "none" }} />
+              </label>
+              <button class="pill-btn" onClick=${onRemove} disabled=${uploading}>Remove</button>
+            </div>
+          `
+          : html`
+            <label class="rendering-drop">
+              <div class="rendering-drop-title">${uploading ? "Uploading…" : "Add the final rendering"}</div>
+              <div class="ink-muted" style=${{ fontSize: "12.5px", marginTop: "4px" }}>
+                JPG, PNG or WEBP · up to 15 MB
+              </div>
+              <input type="file" accept="image/*" onChange=${onPickFile} style=${{ display: "none" }} />
+            </label>
+          `}
+        ${uploadError && html`<div class="alert-banner" style=${{ marginTop: "12px", marginBottom: 0 }}>${uploadError}</div>`}
+      </div>
+
+      ${SELECTION_CATEGORIES.map((group) => html`
+        <div class="surface panel">
+          <div class="panel-title">${group.group}</div>
+          ${group.items.map((item) => html`
+            <${SelectionField} projectId=${id} item=${item} initial=${byKey[item.key]} employee=${employee} />
+          `)}
+        </div>
+      `)}
+
+      <div class="ink-muted" style=${{ fontSize: "12px", padding: "0 2px 8px" }}>
+        Selections save when you click out of a box — there's no separate save button. Everyone signed in sees the same sheet, so it's always the current answer.
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Team (admin only) ----------
+function Team({ employee }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  const [savingId, setSavingId] = useState(null);
+  const reload = useCallback(() => api.getEmployees().then(setRows), []);
+  useEffect(() => { reload(); }, [reload]);
+  if (!rows) return html`<div class="loading">Loading team…</div>`;
+
+  async function changeRole(person, role) {
+    setSavingId(person.id);
+    setError(null);
+    try {
+      await api.updateEmployeeRole(person.id, role);
+      await reload();
+    } catch (e) {
+      setError(e.message || String(e));
+      await reload(); // snap the dropdown back to what the database actually says
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return html`
+    <div>
+      <div class="ink-muted" style=${{ fontSize: "13px", marginBottom: "12px" }}>
+        Everyone who has signed in shows up here. Changing someone's role changes which tasks land under their name on the PM Checklist and in their daily email. New people start as Project Manager until you change them.
+      </div>
+      ${error && html`<div class="alert-banner">${error}</div>`}
+      <div class="surface panel">
+        <table class="schedule-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+          <tbody>
+            ${rows.map((p) => {
+              const isSelf = p.id === employee.id;
+              return html`
+                <tr>
+                  <td>${p.name}</td>
+                  <td class="ink-muted">${p.email}</td>
+                  <td>
+                    ${isSelf
+                      ? html`<span>${ROLE_LABELS[p.role] ?? p.role} <span class="ink-muted" style=${{ fontSize: "12px" }}>· that's you</span></span>`
+                      : html`<select class="cell-input" disabled=${savingId === p.id}
+                          value=${p.role} onChange=${(e) => changeRole(p, e.target.value)}>
+                          ${Object.keys(ROLE_LABELS).map((r) => html`<option value=${r} selected=${r === p.role}>${ROLE_LABELS[r]}</option>`)}
+                        </select>`}
+                  </td>
+                </tr>
+              `;
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div class="ink-muted" style=${{ fontSize: "12px", padding: "0 2px" }}>
+        You can't change your own role here — that's deliberate, so nobody can accidentally remove the last admin and lock everyone out. If you ever need to change your own, do it in Supabase under Table Editor → employees.
+      </div>
+    </div>
+  `;
+}
+
 // ---------- App shell ----------
 function AppShell() {
   const [session, setSession] = useState(undefined); // undefined = loading
@@ -388,6 +643,21 @@ function AppShell() {
     }
   }, [session]);
 
+  // Stamp the current page onto <body> so the stylesheet can pick which
+  // Stack Built photo sits behind it (see "Page backdrops" in style.css).
+  const pageKey = !session
+    ? "login"
+    : route.startsWith("project/")
+      ? "project"
+      : route.startsWith("selections")
+        ? "selections"
+        : ["checklist", "templates", "schedule", "team"].includes(route)
+          ? route
+          : "portfolio";
+  useEffect(() => {
+    document.body.dataset.page = pageKey;
+  }, [pageKey]);
+
   if (session === undefined) return html`<div class="loading">Loading…</div>`;
   if (!session) return html`<${Login} />`;
   if (!employee) return html`<div class="loading">Setting up your account…</div>`;
@@ -397,6 +667,11 @@ function AppShell() {
   else if (route === "checklist") body = html`<${Checklist} employee=${employee} />`;
   else if (route === "templates") body = html`<${Templates} />`;
   else if (route === "schedule") body = html`<${ScheduleSource} />`;
+  else if (route === "selections") body = html`<${SelectionsIndex} />`;
+  else if (route.startsWith("selections/")) body = html`<${ProjectSelections} id=${route.slice("selections/".length)} employee=${employee} />`;
+  else if (route === "team") body = employee.role === "ADMIN"
+    ? html`<${Team} employee=${employee} />`
+    : html`<div class="loading">The Team page is admin-only.</div>`;
   else if (route.startsWith("project/")) body = html`<${ProjectDetail} id=${route.slice("project/".length)} employee=${employee} />`;
   else body = html`<${Portfolio} />`;
 

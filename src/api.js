@@ -78,7 +78,88 @@ export async function toggleTaskComplete(taskId, done, employeeId) {
   if (error) throw error;
 }
 
+export async function getEmployees() {
+  const { data, error } = await supabase.from("employees").select("*").order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Only succeeds for an admin changing someone else's role — that rule is
+// enforced by the database itself (see step2-roles-and-sync.sql), not
+// just by hiding the dropdown, so it holds even if someone pokes at the
+// site's code in their browser.
+export async function updateEmployeeRole(employeeId, role) {
+  const { error } = await supabase.from("employees").update({ role }).eq("id", employeeId);
+  if (error) throw error;
+}
+
 export async function updateMilestone(milestoneId, fields) {
   const { error } = await supabase.from("project_milestones").update(fields).eq("id", milestoneId);
+  if (error) throw error;
+}
+
+// ---------- Project selections ----------
+
+export async function getAllSelections() {
+  const { data, error } = await supabase.from("project_selections").select("project_id, key, value");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getProjectSelections(projectId) {
+  const { data, error } = await supabase.from("project_selections").select("*").eq("project_id", projectId);
+  if (error) throw error;
+  const byKey = {};
+  for (const row of data ?? []) byKey[row.key] = row;
+  return byKey;
+}
+
+// One row per (project, category), created on first save. The unique
+// constraint on (project_id, key) is what makes upsert safe here — two
+// people saving the same field can't produce duplicate rows.
+export async function saveSelection(projectId, key, value, employeeId) {
+  const { error } = await supabase.from("project_selections").upsert(
+    {
+      id: "sel_" + projectId + "_" + key,
+      project_id: projectId,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+      updated_by_id: employeeId,
+    },
+    { onConflict: "project_id,key" }
+  );
+  if (error) throw error;
+}
+
+// ---------- Rendering image ----------
+
+export async function uploadRendering(projectId, file) {
+  // Keyed by project id, so re-uploading replaces the old rendering rather
+  // than piling up orphaned files in the bucket.
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${projectId}/rendering.${ext}`;
+  const { error } = await supabase.storage
+    .from("renderings")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (error) throw error;
+
+  const { error: e2 } = await supabase.from("projects").update({ rendering_path: path }).eq("id", projectId);
+  if (e2) throw e2;
+  return path;
+}
+
+// The bucket is private, so the image is fetched through a short-lived
+// signed link rather than a permanent public URL.
+export async function getRenderingUrl(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("renderings").createSignedUrl(path, 3600);
+  if (error) return null;
+  return data.signedUrl;
+}
+
+export async function removeRendering(projectId, path) {
+  if (path) await supabase.storage.from("renderings").remove([path]);
+  const { error } = await supabase.from("projects").update({ rendering_path: null }).eq("id", projectId);
   if (error) throw error;
 }
