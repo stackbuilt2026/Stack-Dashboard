@@ -60,6 +60,30 @@ export function deriveTasks(tasks, derivedMilestones) {
   });
 }
 
+// A finished project's score is frozen at what it was the day it finished.
+// Without this, the live score keeps measuring against today — so a build
+// that closed out on time would drift further "behind" every morning and
+// eventually show red long after the keys were handed over.
+export function scoreCompletedProject(project) {
+  const status = project.final_status ?? "green";
+  const meta = STATUS_META[status];
+  return {
+    score: project.final_score ?? 100,
+    status,
+    isComplete: true,
+    completedAt: project.completed_at,
+    label: meta.label,
+    varianceDays: 0,
+    completionPct: 100,
+    overdue: [],
+    overdueCritical: [],
+    deductions: [],
+    current: null,
+    derivedMilestones: [],
+    derivedTasks: [],
+  };
+}
+
 export function scoreProject(milestones, tasks, now = new Date()) {
   const derivedMilestones = deriveMilestones(milestones);
   const derivedTasks = deriveTasks(tasks, derivedMilestones);
@@ -108,20 +132,21 @@ export const STATUS_META = {
   red:    { label: "Behind",   color: "var(--critical)", soft: "var(--critical-soft)", ink: "var(--critical-ink)", shape: "shape-red" },
 };
 
+// Stack Built doesn't staff Purchasing or Superintendent — that work sits
+// with whoever is PM on the job, so those roles were folded into
+// PROJECT_MANAGER rather than left as empty buckets nobody fills.
 export const ROLE_LABELS = {
   PROJECT_MANAGER: "Project Manager",
-  PURCHASING: "Purchasing",
   DESIGN: "Design",
-  SUPERINTENDENT: "Superintendent",
   LEASING: "Leasing",
   ADMIN: "Admin",
 };
 
+// Kept only because older code imports it; the role chips render
+// monochrome, so these values aren't used for anything visible.
 export const ROLE_COLORS = {
   PROJECT_MANAGER: "#2a78d6",
-  PURCHASING: "#eb6834",
   DESIGN: "#4a3aa7",
-  SUPERINTENDENT: "#1baf7a",
   LEASING: "#e87ba4",
   ADMIN: "#52514e",
 };

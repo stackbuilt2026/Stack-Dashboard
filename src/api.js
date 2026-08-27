@@ -70,12 +70,26 @@ export async function getAllTasksWithProjects() {
   return { tasks: tasks ?? [], milestones: milestones ?? [], projects: projects ?? [] };
 }
 
-export async function toggleTaskComplete(taskId, done, employeeId) {
+export async function toggleTaskComplete(taskId, done, employeeId, projectId) {
   const { error } = await supabase
     .from("task_instances")
     .update({ completed_at: done ? new Date().toISOString() : null, completed_by_id: done ? employeeId : null })
     .eq("id", taskId);
   if (error) throw error;
+  // Re-check completion straight away, so ticking the last box stamps the
+  // project done (and un-ticking one un-stamps it) rather than waiting for
+  // the next morning's sync.
+  if (projectId) await refreshProjectCompletion(projectId);
+}
+
+// Marks a project complete — and freezes its score — once every milestone
+// has an actual finish date and every task is checked off. Safe to call any
+// time: if the project isn't finished (or stops being finished) it just
+// clears the stamp.
+export async function refreshProjectCompletion(projectId) {
+  const { data, error } = await supabase.rpc("refresh_my_project_completion", { p_project_id: projectId });
+  if (error) throw error;
+  return data;
 }
 
 export async function getEmployees() {
@@ -84,10 +98,34 @@ export async function getEmployees() {
   return data ?? [];
 }
 
-// Only succeeds for an admin changing someone else's role — that rule is
-// enforced by the database itself (see step2-roles-and-sync.sql), not
-// just by hiding the dropdown, so it holds even if someone pokes at the
-// site's code in their browser.
+// Adds someone who hasn't signed in yet. When they later sign in with
+// Google, ensureEmployeeRecord matches on email and they land on THIS row
+// — keeping the role and any job assignments already set for them.
+export async function addEmployee({ name, email, role }) {
+  const { error } = await supabase.from("employees").insert({
+    id: "emp_" + crypto.randomUUID(),
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    role,
+    created_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function removeEmployee(employeeId) {
+  const { error } = await supabase.from("employees").delete().eq("id", employeeId);
+  if (error) throw error;
+}
+
+export async function setProjectManager(projectId, employeeId) {
+  const { error } = await supabase
+    .from("projects").update({ project_manager_id: employeeId || null }).eq("id", projectId);
+  if (error) throw error;
+}
+
+// Only succeeds for an admin changing someone else's role — enforced by
+// the database itself, not just by hiding the dropdown, so it holds even
+// if someone pokes at the site's code in their browser.
 export async function updateEmployeeRole(employeeId, role) {
   const { error } = await supabase.from("employees").update({ role }).eq("id", employeeId);
   if (error) throw error;

@@ -7,23 +7,31 @@
    a shape, never colour alone, so it still reads correctly in greyscale,
    in print, and for colourblind viewers. */
 
-:root {
-  /* Monochrome chrome */
-  --page:        #f4f4f2;
-  --surface:     #ffffff;
-  --surface-2:   #fafaf9;
-  --ink:         #0b0b0b;
-  --ink-2:       #52514e;
-  --ink-muted:   #898781;
-  --gridline:    #e4e3df;
-  --hairline:    rgba(11, 11, 11, 0.08);
-  --accent:      #0b0b0b;   /* black is the accent */
-  --accent-ink:  #ffffff;
 
-  /* Status — the only colour in the system */
-  --good: #0ca30c;      --good-soft: #eaf6ea;      --good-ink: #046104;
-  --warning: #fab219;   --warning-soft: #fdf3e2;   --warning-ink: #8a5a00;
-  --critical: #d03b3b;  --critical-soft: #fbecec;  --critical-ink: #a52424;
+:root {
+  /* Black + charcoal. Surfaces step up from near-black rather than down
+     from white, so the page reads dark and the cards sit on it as slightly
+     lifted panels. */
+  --page:        #0c0c0b;
+  --surface:     #171614;
+  --surface-2:   #1f1e1b;
+  --surface-3:   #2a2925;
+  --ink:         #f5f4f1;
+  --ink-2:       #c8c6bd;
+  --ink-muted:   #8f8c83;
+  --gridline:    #2e2d29;
+  --hairline:    rgba(255, 255, 255, 0.07);
+  --accent:      #f5f4f1;   /* on a dark UI the "accent" is light */
+  --accent-ink:  #0c0c0b;
+
+  /* Status — the only colour in the system. Measured against the charcoal
+     surface: the vivid green and amber clear 5:1 and 9.8:1 as text, so they
+     are used directly. Red at #d03b3b only reaches 3.8:1, which is under the
+     4.5:1 small-text bar — so a lighter red carries the TEXT while the vivid
+     one stays on dots and fills where 3:1 is the right bar. */
+  --good: #0ca30c;      --good-soft: rgba(12,163,12,.15);   --good-ink: #3ec93e;
+  --warning: #fab219;   --warning-soft: rgba(250,178,25,.15); --warning-ink: #fab219;
+  --critical: #d03b3b;  --critical-soft: rgba(208,59,59,.16); --critical-ink: #f07a7a;
 
   --radius: 14px;
   --radius-sm: 9px;
@@ -72,7 +80,7 @@ a { color: inherit; text-decoration: none; }
   font-weight: 550; color: var(--ink-muted); white-space: nowrap;
   transition: color .12s ease, background .12s ease;
 }
-.nav-tab:hover { color: var(--ink); background: var(--surface-2); }
+.nav-tab:hover { color: var(--ink); background: var(--surface-3); }
 .nav-tab.active { background: var(--accent); color: var(--accent-ink); }
 
 .who { display: flex; gap: 14px; align-items: center; font-size: 13px; color: var(--ink-muted); }
@@ -97,17 +105,17 @@ body::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image: var(--page-photo, none);
   background-size: cover; background-position: center;
-  opacity: 0.68;
-  /* The milky veil above drains saturation, which was turning the sage tile
+  opacity: 1;
+  /* The veil above drains saturation, which was turning the sage tile
      and the warm wood grey. Pushing saturation up here compensates, so the
      photo still reads as colour once the veil is over it. */
-  filter: saturate(1.55);
+  filter: saturate(1.35) brightness(1.06);
 }
 /* Milky veil over the photo so mid-tones can't fight the text above them.
    It gets denser toward the bottom, where long lists run past the cards. */
 body::after {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background: linear-gradient(180deg, rgba(244,244,242,.46) 0%, rgba(244,244,242,.60) 45%, rgba(244,244,242,.80) 100%);
+  background: linear-gradient(180deg, rgba(12,12,11,.44) 0%, rgba(12,12,11,.58) 45%, rgba(12,12,11,.78) 100%);
 }
 /* The sign-in screen has its own full-bleed treatment — the veil would wash
    it out, so both layers are off there. */
@@ -140,7 +148,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 }
 .login-card {
   width: 100%; max-width: 372px; padding: 40px 34px 32px; text-align: center;
-  background: var(--surface); border: none; border-radius: 18px;
+  background: var(--surface); border: 1px solid var(--gridline); border-radius: 18px;
   box-shadow: 0 24px 60px -12px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.2);
 }
 .login-logo { width: 178px; max-width: 68%; height: auto; margin: 0 auto 26px; display: block; }
@@ -161,7 +169,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 }
 
 /* ---------- Stat tiles ---------- */
-.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.stat-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
 .stat-tile {
   background: var(--surface); border: 1px solid var(--gridline);
   border-radius: var(--radius); padding: 18px 20px;
@@ -201,8 +209,8 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
   transition: border-color .14s ease, transform .14s ease, box-shadow .14s ease;
 }
 .project-card:hover {
-  border-color: var(--ink); transform: translateY(-1px);
-  box-shadow: 0 6px 20px -8px rgba(11,11,11,.18);
+  border-color: var(--surface-3); transform: translateY(-1px);
+  box-shadow: 0 8px 24px -10px rgba(0,0,0,.6);
 }
 .project-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
 .project-name { font-weight: 650; font-size: 15px; letter-spacing: -0.01em; }
@@ -257,7 +265,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 .timeline-name { font-weight: 600; font-size: 13.5px; }
 .timeline-dates { font-size: 12px; margin-top: 2px; }
 .in-progress-pill {
-  background: var(--ink); color: #fff; font-size: 10px; font-weight: 650;
+  background: var(--ink); color: var(--accent-ink); font-size: 10px; font-weight: 650;
   padding: 2px 8px; border-radius: 999px; margin-left: 8px;
   letter-spacing: 0.05em; text-transform: uppercase; vertical-align: 1px;
 }
@@ -270,7 +278,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
   background: var(--surface-2); border: 1px solid transparent; cursor: pointer;
   transition: border-color .12s ease;
 }
-.task-row:hover { border-color: var(--gridline); }
+.task-row:hover { border-color: var(--surface-3); }
 .task-row.overdue { background: var(--critical-soft); border-left: 3px solid var(--critical); }
 .task-row.locked { opacity: .45; cursor: default; }
 .task-row input[type="checkbox"] { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--ink); flex-shrink: 0; cursor: pointer; }
@@ -278,7 +286,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 .task-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .task-meta { font-size: 12px; margin-top: 3px; }
 .long-lead {
-  font-size: 9.5px; font-weight: 700; color: #fff; background: var(--ink);
+  font-size: 9.5px; font-weight: 700; color: var(--accent-ink); background: var(--ink);
   border-radius: 3px; padding: 2px 6px; margin-left: 7px;
   letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 1px;
 }
@@ -334,7 +342,7 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
   transition: border-color .12s ease, background .12s ease;
 }
 .selection-input:focus { outline: none; border-color: var(--ink); background: var(--surface); }
-.selection-input::placeholder { color: #b4b1a9; }
+.selection-input::placeholder { color: #6b6961; }
 
 /* Save state sits beside the label rather than as a banner — it's
    reassurance, not an alert, so it shouldn't move the page around. */
@@ -361,3 +369,68 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 }
 .rendering-drop:hover { border-color: var(--ink); background: var(--surface); }
 .rendering-drop-title { font-size: 14px; font-weight: 650; }
+
+/* ---------- Completed projects ---------- */
+.badge-complete { background: var(--ink); color: var(--accent-ink); }
+.dot-check { width: auto; height: auto; border-radius: 0; font-size: 10px; line-height: 1; font-weight: 700; }
+.complete-banner {
+  margin-top: 16px; padding: 14px 18px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--gridline); border-left: 3px solid var(--ink);
+  font-size: 13px; line-height: 1.5; color: var(--ink-2);
+}
+.complete-banner strong { color: var(--ink); }
+@media (max-width: 700px) { .stat-row { grid-template-columns: 1fr 1fr; } }
+.metric-row-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* ---------- Setup menu ---------- */
+.nav-menu-wrap { position: relative; }
+.nav-more {
+  border: none; font-family: inherit; cursor: pointer; background: transparent;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.nav-more .chev { font-size: 9px; opacity: .7; }
+.nav-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+  min-width: 268px; padding: 6px;
+  background: var(--surface-2); border: 1px solid var(--gridline);
+  border-radius: var(--radius); box-shadow: 0 18px 40px -12px rgba(0,0,0,.75);
+}
+.nav-menu-item { display: block; padding: 9px 12px; border-radius: var(--radius-sm); }
+.nav-menu-item:hover { background: var(--surface-3); }
+.nav-menu-item.current { background: var(--surface-3); }
+.nav-menu-label { display: block; font-size: 13px; font-weight: 600; color: var(--ink); }
+.nav-menu-note { display: block; font-size: 11.5px; color: var(--ink-muted); margin-top: 1px; }
+
+/* ---------- Team page ---------- */
+.add-person { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr auto; gap: 10px; align-items: center; }
+@media (max-width: 760px) { .add-person { grid-template-columns: 1fr; } }
+.pill-btn-solid { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pill-btn-solid:hover { opacity: .88; color: var(--accent-ink); }
+.link-danger {
+  background: none; border: none; font-family: inherit; font-size: 12.5px;
+  color: var(--ink-muted); cursor: pointer; padding: 4px 2px;
+}
+.link-danger:hover { color: var(--critical-ink); text-decoration: underline; }
+
+/* Segmented control — "My tasks" vs "Everyone" */
+.seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--gridline); border-radius: 999px; padding: 3px; }
+.seg-btn {
+  border: none; background: transparent; font-family: inherit; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-muted);
+  padding: 6px 14px; border-radius: 999px;
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn.active { background: var(--accent); color: var(--accent-ink); }
+.checklist-controls select:disabled { opacity: .4; cursor: not-allowed; }
+.unassigned { color: var(--warning-ink); }
+
+/* Text that sits directly on the backdrop photo (section labels, page
+   intros, the back link) needs help now that the photo is brighter — a
+   bright window behind small grey type is unreadable. Cards and panels
+   have their own opaque surface, so they reset it. */
+.page-body { text-shadow: 0 1px 3px rgba(0,0,0,.85), 0 0 14px rgba(0,0,0,.45); }
+.surface, .surface *,
+.project-card, .project-card *,
+.nav-menu, .nav-menu * { text-shadow: none; }
+.section-label { color: var(--ink-2); }
+.page-body > div > .ink-muted { color: var(--ink-2); }

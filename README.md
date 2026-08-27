@@ -158,6 +158,39 @@ schedule dates back. If it ever leaked, that's the whole blast radius.
 Once that's run, tell me and I'll create the scheduled task itself (it
 lives in your Claude account, not in this website).
 
+## The team, roles, and who owns what
+
+**Roles.** Project Manager, Design, Leasing, Admin. Purchasing and
+Superintendent were removed — Stack Built doesn't staff them, so that work
+now belongs to whoever is PM on the job. Every task that used to be
+Purchasing or Superintendent (12 of them) was moved to Project Manager,
+in the templates and on the jobs already running.
+
+**Several PMs, one per job.** The Team page has a "Project Managers by
+Job" table. Whoever is set there gets that job's project-manager tasks on
+their checklist and in their morning email. Design and Leasing tasks still
+go to whoever holds that role, since there's one of each.
+
+A job with nobody assigned shows up for *every* PM rather than
+disappearing — unassigned work should be loud, not silent.
+
+**Adding people without them signing in.** The Team page has an "Add
+someone" form: name, email, role. Their assignments work immediately, and
+when they eventually sign in with Google they land on the record you
+already made rather than creating a duplicate (matched on email).
+
+**The top bar.** Portfolio, PM Checklist and Selections are the daily
+pages. Schedule Source, Templates and Team are configuration — looked at
+when something changes, not every day — so they live behind the **Setup**
+menu. Team only appears there for admins.
+
+**"My tasks" vs "Everyone."** The PM Checklist opens on your own work.
+Admins open on the full list instead, since overseeing everyone is the
+job. The rule deciding whose task is whose lives in two places — the
+website and the database function that builds the emails — so if one
+changes, change both, or the checklist and the morning email will
+disagree.
+
 ## Project Selections
 
 A **Selections** tab holds every finish decision for a build in one place.
@@ -193,6 +226,30 @@ with a valid `@stack.llc` login opens the page.
 selections are stored as one row per category rather than one column each.
 The one rule: change a category's `label` freely, but don't change its
 `key`, since that's what everything already typed is filed under.
+
+## When a project finishes
+
+A project is marked **Complete** automatically once both are true:
+
+- every milestone has an actual finish date (i.e. every linked Ressio
+  schedule item has hit 100%), and
+- every task on it has been checked off.
+
+At that moment its score is **frozen** at whatever it was that day, and the
+card shows "Final score 62/100 · Completed Aug 26" instead of a live health
+badge. Finished projects sort to the bottom of the Portfolio and drop out
+of the Active count.
+
+Freezing matters more than it sounds. The live score is measured against
+*today* — so a finished project left running would drift further "behind"
+every morning, and a build that closed out on time would slowly rot into a
+red badge months after the keys were handed over. The frozen number is a
+record of how the build actually finished.
+
+Completion is a reflection of the data, never a one-way door: if someone
+un-checks a task or clears a finish date, the stamp is removed and the
+project goes back to being scored live. It's re-evaluated the instant
+someone ticks the last box, and again on every daily sync.
 
 ## How the daily Ressio sync works
 

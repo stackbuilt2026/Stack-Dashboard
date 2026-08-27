@@ -4,7 +4,7 @@ import htm from "htm";
 import { supabase } from "./supabase.js";
 import * as api from "./api.js";
 import { templatesFor, SINGLE_FAMILY_MILESTONES, SINGLE_FAMILY_TASKS, APARTMENT_MILESTONES, APARTMENT_TASKS } from "./templates.js";
-import { scoreProject, deriveMilestones, deriveTasks, STATUS_META, ROLE_LABELS, ROLE_COLORS, fmt, fmtShort } from "./health.js";
+import { scoreProject, scoreCompletedProject, deriveMilestones, deriveTasks, STATUS_META, ROLE_LABELS, ROLE_COLORS, fmt, fmtShort } from "./health.js";
 import { SELECTION_CATEGORIES, ALL_SELECTION_KEYS } from "./selections.js";
 
 const html = htm.bind(h);
@@ -38,6 +38,10 @@ function StatusBadge({ status }) {
 
 // Roles are monochrome — the written label carries the identity, so no
 // colour is needed and the chrome stays black and white.
+function CompleteBadge() {
+  return html`<span class="badge badge-complete"><span class="dot dot-check">✓</span>Complete</span>`;
+}
+
 function RoleTag({ role }) {
   return html`<span class="role-tag">
     <span class="role-dot"></span>${ROLE_LABELS[role] ?? role}
@@ -46,22 +50,63 @@ function RoleTag({ role }) {
 
 function Nav({ employee }) {
   const route = useRoute();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close the menu on an outside click or Escape — otherwise it lingers
+  // over the page after you've navigated away from it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
+
+  useEffect(() => { setMenuOpen(false); }, [route]);
+
   const tab = (path, label) =>
     html`<a href=${"#/" + path} class="nav-tab ${route === path || (path === "" && route === "") ? "active" : ""}">${label}</a>`;
+
+  // The three setup pages live behind a menu. They're configuration —
+  // looked at when something changes, not every day — and putting them in
+  // the main row made the bar noisy for the people who only ever need
+  // Portfolio, Checklist and Selections.
+  const SETUP = [
+    { path: "schedule", label: "Schedule Source", note: "Link milestones to Ressio" },
+    { path: "templates", label: "Templates", note: "Milestones & tasks a new job starts with" },
+    ...(employee?.role === "ADMIN" ? [{ path: "team", label: "Team", note: "People, roles and job assignments" }] : []),
+  ];
+  const inSetup = SETUP.some((i) => i.path === route);
+
   return html`
     <div class="topbar">
       <a class="brand-mark" href="#/">
-        <img class="brand-logo" src="assets/logo-black.png" alt="Stack Built" />
+        <img class="brand-logo" src="assets/logo-white.png" alt="Stack Built" />
         <span class="brand-divider"></span>
         <span class="brand-sub">Project Health</span>
       </a>
       <div class="nav-tabs">
         ${tab("", "Portfolio")}
         ${tab("checklist", "PM Checklist")}
-        ${tab("templates", "Templates")}
-        ${tab("schedule", "Schedule Source")}
         ${tab("selections", "Selections")}
-        ${employee?.role === "ADMIN" && tab("team", "Team")}
+        <div class="nav-menu-wrap" ref=${menuRef}>
+          <button class="nav-tab nav-more ${inSetup ? "active" : ""}" aria-haspopup="true" aria-expanded=${menuOpen}
+            onClick=${() => setMenuOpen((o) => !o)}>
+            Setup <span class="chev">${menuOpen ? "▴" : "▾"}</span>
+          </button>
+          ${menuOpen && html`
+            <div class="nav-menu" role="menu">
+              ${SETUP.map((i) => html`
+                <a class="nav-menu-item ${route === i.path ? "current" : ""}" href=${"#/" + i.path} role="menuitem">
+                  <span class="nav-menu-label">${i.label}</span>
+                  <span class="nav-menu-note">${i.note}</span>
+                </a>
+              `)}
+            </div>
+          `}
+        </div>
       </div>
       <div class="who">
         <span>${employee?.name ?? ""}</span>
@@ -76,7 +121,7 @@ function Login() {
   return html`
     <div class="login-wrap">
       <div class="login-card">
-        <img class="login-logo" src="assets/logo-black.png" alt="Stack Built" />
+        <img class="login-logo" src="assets/logo-white.png" alt="Stack Built" />
         <div class="login-title">Project Health Dashboard</div>
         <div class="login-sub">Sign in to see where every build stands.</div>
         <button class="btn-primary" onClick=${() => api.signInWithGoogle()}>Sign in with Google</button>
@@ -90,24 +135,39 @@ function Login() {
 // ---------- Portfolio ----------
 function Portfolio() {
   const [rows, setRows] = useState(null);
-  useEffect(() => { api.getProjects().then(setRows); }, []);
+  const [people, setPeople] = useState([]);
+  useEffect(() => {
+    api.getProjects().then(setRows);
+    api.getEmployees().then(setPeople).catch(() => setPeople([]));
+  }, []);
   if (!rows) return html`<div class="loading">Loading projects…</div>`;
+  const pmName = (id) => people.find((p) => p.id === id)?.name;
 
   const scored = rows
-    .map((r) => ({ ...r, health: scoreProject(r.milestones, r.tasks) }))
-    .sort((a, b) => a.health.score - b.health.score);
+    .map((r) => ({
+      ...r,
+      health: r.project.completed_at
+        ? scoreCompletedProject(r.project)
+        : scoreProject(r.milestones, r.tasks),
+    }))
+    // Finished builds drop to the bottom — the point of this page is what
+    // still needs attention, and a completed job never does.
+    .sort((a, b) => (a.health.isComplete ? 1 : 0) - (b.health.isComplete ? 1 : 0) || a.health.score - b.health.score);
 
   const counts = { green: 0, yellow: 0, red: 0 };
-  scored.forEach((s) => counts[s.health.status]++);
+  const active = scored.filter((s) => !s.health.isComplete);
+  active.forEach((s) => counts[s.health.status]++);
+  const completeCount = scored.length - active.length;
   const totalOverdue = scored.reduce((sum, s) => sum + s.health.overdue.length, 0);
 
   return html`
     <div>
       <div class="stat-row">
-        <div class="stat-tile"><div class="stat-num">${scored.length}</div><div class="stat-label">Active Projects</div></div>
+        <div class="stat-tile"><div class="stat-num">${active.length}</div><div class="stat-label">Active Projects</div></div>
         <div class="stat-tile"><div class="stat-num">${counts.green}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--good)" }}></span>On Track</div></div>
         <div class="stat-tile"><div class="stat-num">${counts.yellow}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--warning)" }}></span>At Risk</div></div>
         <div class="stat-tile"><div class="stat-num">${counts.red}</div><div class="stat-label"><span class="stat-swatch" style=${{ background: "var(--critical)" }}></span>Behind</div></div>
+        <div class="stat-tile"><div class="stat-num">${completeCount}</div><div class="stat-label">Complete</div></div>
       </div>
       ${totalOverdue > 0 && html`
         <div class="alert-banner">
@@ -125,16 +185,25 @@ function Portfolio() {
                 <div>
                   <div class="project-name">${s.project.name}</div>
                   <div class="ink-muted project-sub">${s.project.client} · ${s.project.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"}</div>
+                  <div class="ink-muted project-sub">PM: ${pmName(s.project.project_manager_id) ?? html`<span class="unassigned">Unassigned</span>`}</div>
                 </div>
-                <${StatusBadge} status=${s.health.status} />
+                ${s.health.isComplete ? html`<${CompleteBadge} />` : html`<${StatusBadge} status=${s.health.status} />`}
               </div>
-              <div class="project-current">Currently: <strong>${current?.name}</strong></div>
-              <div class="project-metrics">
-                <span style=${{ color: s.health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>
-                  ${s.health.varianceDays > 0 ? `${s.health.varianceDays}d behind` : `${Math.abs(s.health.varianceDays)}d ahead`}
-                </span>
-                <span class="ink-muted">${s.health.completionPct}% tasks complete</span>
-              </div>
+              ${s.health.isComplete
+                ? html`
+                  <div class="project-current">Completed <strong>${fmt(s.health.completedAt)}</strong></div>
+                  <div class="project-metrics">
+                    <span>Final score ${s.health.score}/100</span>
+                    <span class="ink-muted">All tasks complete</span>
+                  </div>`
+                : html`
+                  <div class="project-current">Currently: <strong>${current?.name}</strong></div>
+                  <div class="project-metrics">
+                    <span style=${{ color: s.health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>
+                      ${s.health.varianceDays > 0 ? `${s.health.varianceDays}d behind` : `${Math.abs(s.health.varianceDays)}d ahead`}
+                    </span>
+                    <span class="ink-muted">${s.health.completionPct}% tasks complete</span>
+                  </div>`}
               <div class="progress-track"><div class="progress-fill" style=${{ width: s.health.completionPct + "%" }}></div></div>
               ${nextTask && html`
                 <div class="project-next">
@@ -153,18 +222,28 @@ function Portfolio() {
 // ---------- Project detail ----------
 function ProjectDetail({ id, employee }) {
   const [data, setData] = useState(null);
-  const reload = useCallback(() => api.getProjectDetail(id).then(setData), [id]);
+  const [pmName, setPmName] = useState(null);
+  const reload = useCallback(async () => {
+    const detail = await api.getProjectDetail(id);
+    setData(detail);
+    if (detail.project?.project_manager_id) {
+      const people = await api.getEmployees().catch(() => []);
+      setPmName(people.find((p) => p.id === detail.project.project_manager_id)?.name ?? null);
+    } else setPmName(null);
+  }, [id]);
   useEffect(() => { reload(); }, [reload]);
   if (!data || !data.project) return html`<div class="loading">Loading…</div>`;
 
-  const health = scoreProject(data.milestones, data.tasks);
+  const health = data.project.completed_at
+    ? { ...scoreCompletedProject(data.project), ...(() => { const live = scoreProject(data.milestones, data.tasks); return { derivedMilestones: live.derivedMilestones, derivedTasks: live.derivedTasks, current: live.current }; })() }
+    : scoreProject(data.milestones, data.tasks);
   const tasksByTrigger = {};
   health.derivedTasks.forEach((t) => {
     (tasksByTrigger[t.trigger_key] ??= []).push(t);
   });
 
   async function onToggle(task) {
-    await api.toggleTaskComplete(task.id, task.status !== "DONE", employee.id);
+    await api.toggleTaskComplete(task.id, task.status !== "DONE", employee.id, id);
     reload();
   }
 
@@ -176,15 +255,30 @@ function ProjectDetail({ id, employee }) {
           <div>
             <div class="project-name" style=${{ fontSize: "20px" }}>${data.project.name}</div>
             <div class="ink-muted">${data.project.client} · ${data.project.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"} · Started ${fmt(data.project.start_date)}</div>
+            <div class="ink-muted" style=${{ marginTop: "3px" }}>Project Manager: ${pmName ?? html`<span class="unassigned">Unassigned</span>`}</div>
           </div>
-          <${StatusBadge} status=${health.status} />
+          ${health.isComplete ? html`<${CompleteBadge} />` : html`<${StatusBadge} status=${health.status} />`}
         </div>
-        <div class="metric-row">
-          <div><div class="ink-muted metric-label">Health Score</div><div class="metric-value">${health.score}/100</div></div>
-          <div><div class="ink-muted metric-label">Schedule</div><div class="metric-value" style=${{ color: health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>${health.varianceDays > 0 ? `${health.varianceDays}d behind` : `${Math.abs(health.varianceDays)}d ahead`}</div></div>
-          <div><div class="ink-muted metric-label">Tasks Complete</div><div class="metric-value">${health.completionPct}%</div></div>
-          <div><div class="ink-muted metric-label">Overdue</div><div class="metric-value" style=${{ color: health.overdue.length ? "var(--critical-ink)" : undefined }}>${health.overdue.length}</div></div>
-        </div>
+        ${health.isComplete && html`
+          <div class="complete-banner">
+            <strong>Project complete.</strong> Finished ${fmt(health.completedAt)} — every milestone closed out and every task checked off.
+            The score below is frozen at what it was that day, so it stays a record of how this build finished.
+          </div>
+        `}
+        ${health.isComplete
+          ? html`
+            <div class="metric-row metric-row-3">
+              <div><div class="ink-muted metric-label">Final Score</div><div class="metric-value">${health.score}/100</div></div>
+              <div><div class="ink-muted metric-label">Finished</div><div class="metric-value">${fmtShort(health.completedAt)}</div></div>
+              <div><div class="ink-muted metric-label">Tasks Complete</div><div class="metric-value">100%</div></div>
+            </div>`
+          : html`
+            <div class="metric-row">
+              <div><div class="ink-muted metric-label">Health Score</div><div class="metric-value">${health.score}/100</div></div>
+              <div><div class="ink-muted metric-label">Schedule</div><div class="metric-value" style=${{ color: health.varianceDays > 0 ? "var(--critical-ink)" : "var(--good-ink)" }}>${health.varianceDays > 0 ? `${health.varianceDays}d behind` : `${Math.abs(health.varianceDays)}d ahead`}</div></div>
+              <div><div class="ink-muted metric-label">Tasks Complete</div><div class="metric-value">${health.completionPct}%</div></div>
+              <div><div class="ink-muted metric-label">Overdue</div><div class="metric-value" style=${{ color: health.overdue.length ? "var(--critical-ink)" : undefined }}>${health.overdue.length}</div></div>
+            </div>`}
         ${health.deductions.length > 0 && html`
           <div class="why-box">
             <div class="why-title">Why this status:</div>
@@ -240,17 +334,35 @@ function ProjectDetail({ id, employee }) {
   `;
 }
 
+// Who owns a task. Project-manager work goes to the PM assigned to THAT
+// job; everything else goes to whoever holds the role. A job with no PM
+// assigned shows for every PM, so work can't silently go unowned.
+// This mirrors digest_data() in the database — if you change one, change
+// both, or the checklist and the morning email will disagree.
+function ownsTask(task, project, employee) {
+  if (task.role === "PROJECT_MANAGER") {
+    return employee.role === "PROJECT_MANAGER" &&
+      (project.project_manager_id === employee.id || !project.project_manager_id);
+  }
+  return task.role === employee.role;
+}
+
 // ---------- Checklist ----------
 function Checklist({ employee }) {
   const [state, setState] = useState(null);
   const [roleFilter, setRoleFilter] = useState("All");
   const [hideCompleted, setHideCompleted] = useState(true);
+  // Defaults to your own work. An admin oversees everyone, so they start
+  // on the full list instead.
+  const [mineOnly, setMineOnly] = useState(employee.role !== "ADMIN");
   const reload = useCallback(() => api.getAllTasksWithProjects().then(setState), []);
   useEffect(() => { reload(); }, [reload]);
   if (!state) return html`<div class="loading">Loading…</div>`;
 
   const rows = [];
   state.projects.forEach((p) => {
+    // A finished job's leftovers aren't work — skip it entirely.
+    if (p.completed_at) return;
     const milestones = state.milestones.filter((m) => m.project_id === p.id);
     const tasks = state.tasks.filter((t) => t.project_id === p.id);
     const derivedM = deriveMilestones(milestones);
@@ -258,20 +370,27 @@ function Checklist({ employee }) {
     derivedT.filter((t) => t.status !== "LOCKED").forEach((t) => rows.push({ ...t, project: p }));
   });
 
+  const mineCount = rows.filter((t) => ownsTask(t, t.project, employee) && t.status !== "DONE").length;
+
   const filtered = rows
+    .filter((t) => !mineOnly || ownsTask(t, t.project, employee))
     .filter((t) => roleFilter === "All" || t.role === roleFilter)
     .filter((t) => !hideCompleted || t.status !== "DONE")
     .sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
 
   async function onToggle(t) {
-    await api.toggleTaskComplete(t.id, t.status !== "DONE", employee.id);
+    await api.toggleTaskComplete(t.id, t.status !== "DONE", employee.id, t.project.id);
     reload();
   }
 
   return html`
     <div>
       <div class="checklist-controls">
-        <select onChange=${(e) => setRoleFilter(e.target.value)}>
+        <div class="seg">
+          <button class="seg-btn ${mineOnly ? "active" : ""}" onClick=${() => setMineOnly(true)}>My tasks${mineCount ? ` (${mineCount})` : ""}</button>
+          <button class="seg-btn ${!mineOnly ? "active" : ""}" onClick=${() => setMineOnly(false)}>Everyone</button>
+        </div>
+        <select onChange=${(e) => setRoleFilter(e.target.value)} disabled=${mineOnly}>
           <option>All</option>
           ${Object.keys(ROLE_LABELS).map((r) => html`<option value=${r}>${ROLE_LABELS[r]}</option>`)}
         </select>
@@ -292,7 +411,7 @@ function Checklist({ employee }) {
             <${RoleTag} role=${t.role} />
           </label>
         `)}
-        ${filtered.length === 0 && html`<div class="empty">Nothing here.</div>`}
+        ${filtered.length === 0 && html`<div class="empty">${mineOnly ? "Nothing on your plate right now." : "Nothing here."}</div>`}
       </div>
     </div>
   `;
@@ -561,49 +680,93 @@ function ProjectSelections({ id, employee }) {
 // ---------- Team (admin only) ----------
 function Team({ employee }) {
   const [rows, setRows] = useState(null);
+  const [projects, setProjects] = useState(null);
   const [error, setError] = useState(null);
   const [savingId, setSavingId] = useState(null);
-  const reload = useCallback(() => api.getEmployees().then(setRows), []);
-  useEffect(() => { reload(); }, [reload]);
-  if (!rows) return html`<div class="loading">Loading team…</div>`;
+  const [draft, setDraft] = useState({ name: "", email: "", role: "PROJECT_MANAGER" });
+  const [adding, setAdding] = useState(false);
 
-  async function changeRole(person, role) {
-    setSavingId(person.id);
+  const reload = useCallback(async () => {
+    const [emps, projs] = await Promise.all([api.getEmployees(), api.getProjects()]);
+    setRows(emps);
+    setProjects(projs.map((r) => r.project));
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+  if (!rows || !projects) return html`<div class="loading">Loading team…</div>`;
+
+  const pms = rows.filter((r) => r.role === "PROJECT_MANAGER");
+
+  async function run(fn) {
     setError(null);
-    try {
-      await api.updateEmployeeRole(person.id, role);
-      await reload();
-    } catch (e) {
-      setError(e.message || String(e));
-      await reload(); // snap the dropdown back to what the database actually says
-    } finally {
-      setSavingId(null);
+    try { await fn(); await reload(); }
+    catch (e) { setError(e.message || String(e)); await reload(); }
+  }
+
+  async function onAdd(e) {
+    e.preventDefault();
+    if (!draft.name.trim() || !draft.email.trim()) { setError("Name and email are both needed."); return; }
+    if (!draft.email.trim().toLowerCase().endsWith("@stack.llc")) {
+      setError("Email has to be an @stack.llc address — that's what the sign-in is restricted to.");
+      return;
     }
+    setAdding(true);
+    await run(async () => {
+      await api.addEmployee(draft);
+      setDraft({ name: "", email: "", role: "PROJECT_MANAGER" });
+    });
+    setAdding(false);
   }
 
   return html`
     <div>
-      <div class="ink-muted" style=${{ fontSize: "13px", marginBottom: "12px" }}>
-        Everyone who has signed in shows up here. Changing someone's role changes which tasks land under their name on the PM Checklist and in their daily email. New people start as Project Manager until you change them.
-      </div>
       ${error && html`<div class="alert-banner">${error}</div>`}
+
       <div class="surface panel">
+        <div class="panel-title">Add someone</div>
+        <div class="ink-muted" style=${{ fontSize: "12.5px", marginBottom: "14px" }}>
+          You don't have to wait for people to sign in. Add them here and their tasks and job assignments work straight away — when they do sign in with Google, they land on the record you already made.
+        </div>
+        <form class="add-person" onSubmit=${onAdd}>
+          <input class="cell-input" placeholder="Full name" value=${draft.name}
+            onInput=${(e) => setDraft({ ...draft, name: e.target.value })} />
+          <input class="cell-input" placeholder="name@stack.llc" type="email" value=${draft.email}
+            onInput=${(e) => setDraft({ ...draft, email: e.target.value })} />
+          <select class="cell-input" value=${draft.role}
+            onChange=${(e) => setDraft({ ...draft, role: e.target.value })}>
+            ${Object.keys(ROLE_LABELS).map((r) => html`<option value=${r} selected=${r === draft.role}>${ROLE_LABELS[r]}</option>`)}
+          </select>
+          <button class="pill-btn pill-btn-solid" type="submit" disabled=${adding}>${adding ? "Adding…" : "Add"}</button>
+        </form>
+      </div>
+
+      <div class="surface panel">
+        <div class="panel-title">People</div>
         <table class="schedule-table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
           <tbody>
             ${rows.map((p) => {
               const isSelf = p.id === employee.id;
+              const jobs = projects.filter((x) => x.project_manager_id === p.id).length;
               return html`
                 <tr>
-                  <td>${p.name}</td>
+                  <td>
+                    ${p.name}
+                    ${jobs > 0 && html`<span class="ink-muted" style=${{ fontSize: "12px" }}> · PM on ${jobs} job${jobs === 1 ? "" : "s"}</span>`}
+                  </td>
                   <td class="ink-muted">${p.email}</td>
                   <td>
                     ${isSelf
                       ? html`<span>${ROLE_LABELS[p.role] ?? p.role} <span class="ink-muted" style=${{ fontSize: "12px" }}>· that's you</span></span>`
-                      : html`<select class="cell-input" disabled=${savingId === p.id}
-                          value=${p.role} onChange=${(e) => changeRole(p, e.target.value)}>
+                      : html`<select class="cell-input" disabled=${savingId === p.id} value=${p.role}
+                          onChange=${async (e) => { setSavingId(p.id); await run(() => api.updateEmployeeRole(p.id, e.target.value)); setSavingId(null); }}>
                           ${Object.keys(ROLE_LABELS).map((r) => html`<option value=${r} selected=${r === p.role}>${ROLE_LABELS[r]}</option>`)}
                         </select>`}
+                  </td>
+                  <td style=${{ textAlign: "right" }}>
+                    ${!isSelf && html`<button class="link-danger" onClick=${() => {
+                      if (jobs > 0) { setError(`${p.name} is still the PM on ${jobs} job${jobs === 1 ? "" : "s"} — reassign those first.`); return; }
+                      run(() => api.removeEmployee(p.id));
+                    }}>Remove</button>`}
                   </td>
                 </tr>
               `;
@@ -611,8 +774,36 @@ function Team({ employee }) {
           </tbody>
         </table>
       </div>
+
+      <div class="surface panel">
+        <div class="panel-title">Project Managers by Job</div>
+        <div class="ink-muted" style=${{ fontSize: "12.5px", marginBottom: "14px" }}>
+          Whoever is set here gets that job's project-manager tasks on their checklist and in their morning email. A job with nobody assigned shows up for every PM, so nothing quietly goes unowned.
+        </div>
+        <table class="schedule-table">
+          <thead><tr><th>Project</th><th>Project Manager</th></tr></thead>
+          <tbody>
+            ${projects.map((proj) => html`
+              <tr>
+                <td>
+                  ${proj.name}
+                  ${proj.completed_at && html`<span class="ink-muted" style=${{ fontSize: "12px" }}> · complete</span>`}
+                </td>
+                <td>
+                  <select class="cell-input" value=${proj.project_manager_id ?? ""}
+                    onChange=${(e) => run(() => api.setProjectManager(proj.id, e.target.value))}>
+                    <option value="" selected=${!proj.project_manager_id}>— Unassigned —</option>
+                    ${pms.map((pm) => html`<option value=${pm.id} selected=${pm.id === proj.project_manager_id}>${pm.name}</option>`)}
+                  </select>
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+
       <div class="ink-muted" style=${{ fontSize: "12px", padding: "0 2px" }}>
-        You can't change your own role here — that's deliberate, so nobody can accidentally remove the last admin and lock everyone out. If you ever need to change your own, do it in Supabase under Table Editor → employees.
+        You can't change or remove your own record here — that's deliberate, so nobody can accidentally remove the last admin and lock everyone out. If it ever needs doing, Supabase's Table Editor can override.
       </div>
     </div>
   `;
