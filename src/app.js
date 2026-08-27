@@ -74,6 +74,7 @@ function Nav({ employee }) {
   // the main row made the bar noisy for the people who only ever need
   // Portfolio, Checklist and Selections.
   const SETUP = [
+    { path: "projects", label: "Projects", note: "Add jobs from Ressio, archive finished ones" },
     { path: "schedule", label: "Schedule Source", note: "Link milestones to Ressio" },
     { path: "templates", label: "Templates", note: "Milestones & tasks a new job starts with" },
     ...(employee?.role === "ADMIN" ? [{ path: "team", label: "Team", note: "People, roles and job assignments" }] : []),
@@ -265,6 +266,19 @@ function ProjectDetail({ id, employee }) {
           <div class="complete-banner">
             <strong>Project complete.</strong> Finished ${fmt(health.completedAt)} — every milestone closed out and every task checked off.
             The score below is frozen at what it was that day, so it stays a record of how this build finished.
+            ${employee.role === "ADMIN" && html`
+              <div class="finish-date-edit">
+                <label>Actual finish date</label>
+                <input class="cell-input" type="date"
+                  value=${new Date(health.completedAt).toISOString().slice(0, 10)}
+                  onChange=${async (e) => {
+                    if (!e.target.value) return;
+                    try { await api.setCompletionDate(id, e.target.value); await reload(); }
+                    catch (err) { alert(err.message || String(err)); }
+                  }} />
+                <span class="ink-muted">The date defaults to when the last box was ticked. Correct it here if the job actually wrapped earlier — the score recalculates.</span>
+              </div>
+            `}
           </div>
         `}
         ${health.isComplete
@@ -497,9 +511,20 @@ function ScheduleSource() {
 // ---------- Selections: pick a project ----------
 function SelectionsIndex() {
   const [state, setState] = useState(null);
-  useEffect(() => {
-    Promise.all([api.getProjects(), api.getAllSelections()]).then(([rows, sels]) => setState({ rows, sels }));
+  const [showPast, setShowPast] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  const reload = useCallback(async () => {
+    // Includes archived, unlike the Portfolio — the whole point here is
+    // that a finished job's selections stay reachable.
+    const [projects, sels] = await Promise.all([
+      api.getAllProjectsIncludingArchived(),
+      api.getAllSelections(),
+    ]);
+    setState({ projects, sels });
   }, []);
+  useEffect(() => { reload(); }, [reload]);
   if (!state) return html`<div class="loading">Loading projects…</div>`;
 
   const filledByProject = {};
@@ -508,33 +533,81 @@ function SelectionsIndex() {
   }
   const total = ALL_SELECTION_KEYS.length;
 
+  // A job is "past" once it's complete or archived. Selections are a
+  // reference document, so past ones are tucked away rather than removed.
+  const isPast = (p) => !!p.completed_at || p.archived;
+  const current = state.projects.filter((p) => !isPast(p));
+  const past = state.projects.filter(isPast);
+
+  async function run(key, fn) {
+    setBusy(key); setError(null);
+    try { await fn(); await reload(); }
+    catch (e) { setError(e.message || String(e)); }
+    finally { setBusy(null); }
+  }
+
+  const card = (project, { showArchive, showRestore }) => {
+    const done = filledByProject[project.id]?.size ?? 0;
+    const pct = Math.round((done / total) * 100);
+    return html`
+      <div class="selection-card">
+        <a class="project-card" href=${"#/selections/" + project.id}>
+          <div class="project-card-head">
+            <div>
+              <div class="project-name">${project.name}</div>
+              <div class="ink-muted project-sub">
+                ${project.client} · ${project.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"}
+              </div>
+            </div>
+            ${project.rendering_path && html`<span class="role-tag">Rendering</span>`}
+          </div>
+          <div class="project-metrics">
+            <span>${done} of ${total} filled in</span>
+            <span class="ink-muted">${pct}%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style=${{ width: pct + "%" }}></div></div>
+        </a>
+        ${(showArchive || showRestore) && html`
+          <div class="selection-card-actions">
+            ${project.completed_at && html`<span class="ink-muted">Completed ${fmt(project.completed_at)}</span>`}
+            ${showArchive && html`<button class="link-danger" disabled=${busy === project.id}
+              onClick=${() => run(project.id, () => api.setProjectArchived(project.id, true))}>Archive</button>`}
+            ${showRestore && html`<button class="link-quiet" disabled=${busy === project.id}
+              onClick=${() => run(project.id, () => api.setProjectArchived(project.id, false))}>Restore</button>`}
+          </div>
+        `}
+      </div>
+    `;
+  };
+
   return html`
     <div>
+      ${error && html`<div class="alert-banner">${error}</div>`}
       <div class="ink-muted" style=${{ fontSize: "13px", marginBottom: "14px" }}>
         Every selection for a build, in one place. Pick a project to open its selection sheet.
       </div>
+
       <div class="card-grid">
-        ${state.rows.map(({ project }) => {
-          const done = filledByProject[project.id]?.size ?? 0;
-          const pct = Math.round((done / total) * 100);
-          return html`
-            <a class="project-card" href=${"#/selections/" + project.id}>
-              <div class="project-card-head">
-                <div>
-                  <div class="project-name">${project.name}</div>
-                  <div class="ink-muted project-sub">${project.client} · ${project.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"}</div>
-                </div>
-                ${project.rendering_path && html`<span class="role-tag">Rendering</span>`}
-              </div>
-              <div class="project-metrics">
-                <span>${done} of ${total} filled in</span>
-                <span class="ink-muted">${pct}%</span>
-              </div>
-              <div class="progress-track"><div class="progress-fill" style=${{ width: pct + "%" }}></div></div>
-            </a>
-          `;
-        })}
+        ${current.map((p) => card(p, { showArchive: !!p.completed_at }))}
       </div>
+      ${current.length === 0 && html`<div class="empty">No jobs underway right now.</div>`}
+
+      ${past.length > 0 && html`
+        <div class="past-block">
+          <button class="past-toggle" onClick=${() => setShowPast((v) => !v)}>
+            <span class="chev">${showPast ? "▾" : "▸"}</span>
+            Past projects (${past.length})
+          </button>
+          <div class="ink-muted past-note">
+            Finished and archived jobs. Their selections stay here for reference — nothing is deleted.
+          </div>
+          ${showPast && html`
+            <div class="card-grid" style=${{ marginTop: "12px" }}>
+              ${past.map((p) => card(p, { showArchive: !p.archived, showRestore: p.archived }))}
+            </div>
+          `}
+        </div>
+      `}
     </div>
   `;
 }
@@ -675,6 +748,126 @@ function ProjectSelections({ id, employee }) {
       <div class="ink-muted" style=${{ fontSize: "12px", padding: "0 2px 8px" }}>
         Selections save when you click out of a box — there's no separate save button. Everyone signed in sees the same sheet, so it's always the current answer.
       </div>
+    </div>
+  `;
+}
+
+// ---------- Projects (add from Ressio / archive) ----------
+function ProjectsAdmin() {
+  const [mine, setMine] = useState(null);
+  const [ressio, setRessio] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [types, setTypes] = useState({});
+
+  const reload = useCallback(async () => {
+    const [ps, rp] = await Promise.all([api.getAllProjectsIncludingArchived(), api.getRessioProjects()]);
+    setMine(ps); setRessio(rp);
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+  if (!mine || !ressio) return html`<div class="loading">Loading projects…</div>`;
+
+  const onDash = new Set(mine.map((p) => p.ressio_project_id).filter(Boolean));
+  // Only offer what's plausibly a real job: not already added, not archived
+  // in Ressio, and past the Prospect stage. Everything else is noise here.
+  const available = ressio.filter((r) => !onDash.has(r.id) && !r.is_archived && r.stage !== "Prospect");
+  const active = mine.filter((p) => !p.archived);
+  const archived = mine.filter((p) => p.archived);
+  const lastSync = ressio[0]?.synced_at;
+
+  async function run(key, fn) {
+    setBusy(key); setError(null);
+    try { await fn(); await reload(); }
+    catch (e) { setError(e.message || String(e)); }
+    finally { setBusy(null); }
+  }
+
+  return html`
+    <div>
+      ${error && html`<div class="alert-banner">${error}</div>`}
+
+      <div class="surface panel">
+        <div class="panel-title">Add a job from Ressio</div>
+        <div class="ink-muted" style=${{ fontSize: "12.5px", marginBottom: "14px" }}>
+          Jobs in Ressio that aren't on the dashboard yet. Pick the process it follows and add it — that builds its milestones and tasks. Then link its milestones to the Ressio schedule on the Schedule Source page.
+          ${lastSync && html`<span> · Ressio list last refreshed ${fmt(lastSync)}.</span>`}
+        </div>
+        ${available.length === 0
+          ? html`<div class="empty">Every active Ressio job is already on the dashboard.</div>`
+          : html`
+            <table class="schedule-table">
+              <thead><tr><th>Project</th><th>Stage</th><th>Process</th><th></th></tr></thead>
+              <tbody>
+                ${available.map((r) => html`
+                  <tr>
+                    <td>
+                      ${r.name}
+                      ${r.address && html`<div class="ink-muted" style=${{ fontSize: "12px" }}>${r.address}</div>`}
+                    </td>
+                    <td class="ink-muted">${r.stage}</td>
+                    <td>
+                      <select class="cell-input" value=${types[r.id] ?? "SINGLE_FAMILY"}
+                        onChange=${(e) => setTypes({ ...types, [r.id]: e.target.value })}>
+                        <option value="SINGLE_FAMILY">Single-Family Home</option>
+                        <option value="APARTMENT">Apartment / Multifamily</option>
+                      </select>
+                    </td>
+                    <td style=${{ textAlign: "right" }}>
+                      <button class="pill-btn pill-btn-solid" disabled=${busy === r.id}
+                        onClick=${() => run(r.id, () => api.addProjectFromRessio({
+                          ressioId: r.id, name: r.name, client: "Stack Built",
+                          type: types[r.id] ?? "SINGLE_FAMILY", startDate: null,
+                        }))}>
+                        ${busy === r.id ? "Adding…" : "Add"}
+                      </button>
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          `}
+      </div>
+
+      <div class="surface panel">
+        <div class="panel-title">On the dashboard</div>
+        <table class="schedule-table">
+          <thead><tr><th>Project</th><th>Process</th><th></th></tr></thead>
+          <tbody>
+            ${active.map((p) => html`
+              <tr>
+                <td>${p.name}${p.completed_at && html`<span class="ink-muted" style=${{ fontSize: "12px" }}> · complete</span>`}</td>
+                <td class="ink-muted">${p.type === "APARTMENT" ? "Apartment / Multifamily" : "Single-Family Home"}</td>
+                <td style=${{ textAlign: "right" }}>
+                  <button class="link-danger" disabled=${busy === p.id}
+                    onClick=${() => run(p.id, () => api.setProjectArchived(p.id, true))}>Archive</button>
+                </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+        <div class="ink-muted" style=${{ fontSize: "12px", marginTop: "12px" }}>
+          Archiving hides a job from the dashboard. Nothing is deleted — its tasks, selections and rendering all stay, and you can bring it back below.
+        </div>
+      </div>
+
+      ${archived.length > 0 && html`
+        <div class="surface panel">
+          <div class="panel-title">Archived</div>
+          <table class="schedule-table">
+            <tbody>
+              ${archived.map((p) => html`
+                <tr>
+                  <td>${p.name}</td>
+                  <td style=${{ textAlign: "right" }}>
+                    <button class="pill-btn" disabled=${busy === p.id}
+                      onClick=${() => run(p.id, () => api.setProjectArchived(p.id, false))}>Restore</button>
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      `}
     </div>
   `;
 }
@@ -857,7 +1050,7 @@ function AppShell() {
       ? "project"
       : route.startsWith("selections")
         ? "selections"
-        : ["checklist", "templates", "schedule", "team"].includes(route)
+        : ["checklist", "templates", "schedule", "team", "projects"].includes(route)
           ? route
           : "portfolio";
   useEffect(() => {
@@ -873,6 +1066,7 @@ function AppShell() {
   else if (route === "checklist") body = html`<${Checklist} employee=${employee} />`;
   else if (route === "templates") body = html`<${Templates} />`;
   else if (route === "schedule") body = html`<${ScheduleSource} />`;
+  else if (route === "projects") body = html`<${ProjectsAdmin} />`;
   else if (route === "selections") body = html`<${SelectionsIndex} />`;
   else if (route.startsWith("selections/")) body = html`<${ProjectSelections} id=${route.slice("selections/".length)} employee=${employee} />`;
   else if (route === "team") body = employee.role === "ADMIN"

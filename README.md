@@ -209,6 +209,29 @@ website and the database function that builds the emails — so if one
 changes, change both, or the checklist and the morning email will
 disagree.
 
+## Adding and archiving jobs yourself
+
+**Setup → Projects.** The top section lists jobs that exist in Ressio but
+aren't on the dashboard yet. Pick whether each follows the single-family or
+apartment process, click Add, and its milestones and tasks are built from
+that template. Then link its milestones to the Ressio schedule on the
+Schedule Source page.
+
+The list is filtered to what's plausibly a real job — anything already
+added, archived in Ressio, or still at Prospect stage is hidden, so you're
+not scrolling past "Social Media" and "Safety Log" every time.
+
+**Archiving** hides a finished or dead job from the dashboard. Nothing is
+deleted — its tasks, selections and rendering all stay, and there's a
+Restore button underneath.
+
+One thing worth understanding: the dashboard **cannot call Ressio
+directly.** It's a plain website talking to a database, and the Ressio
+connection only exists inside an AI session. So the daily sync job writes
+Ressio's project list into a table, and this page reads that. Worst case
+the list is a day stale, which is fine for "which jobs could I add?" The
+page shows when it last refreshed.
+
 ## Project Selections
 
 A **Selections** tab holds every finish decision for a build in one place.
@@ -239,6 +262,14 @@ would keep access to it forever — and these are client-facing design
 documents. Instead the app requests a short-lived link each time someone
 with a valid `@stack.llc` login opens the page.
 
+**Finished jobs move out of the way.** Once a project is complete (or
+archived) it drops into a collapsed "Past projects" section at the bottom
+of the Selections page, so the main list is only what's underway. Its
+sheet still opens normally — selections are a reference document, and the
+last thing you want is the finishes on a house you built last year being
+hard to find. There's an Archive button on completed cards if you want one
+gone from the Portfolio too, and a Restore next to anything archived.
+
 **Adding or changing a category later** is a code change only — edit
 `src/selections.js` and re-deploy. No database change is needed, because
 selections are stored as one row per category rather than one column each.
@@ -263,6 +294,14 @@ Freezing matters more than it sounds. The live score is measured against
 every morning, and a build that closed out on time would slowly rot into a
 red badge months after the keys were handed over. The frozen number is a
 record of how the build actually finished.
+
+**Correcting the finish date.** The date is derived from the last activity
+in the app — the final milestone or the final task being ticked. That is
+often a few days after the job really wrapped; nobody checks the last box
+standing in the driveway. On a completed project an admin sees an "Actual
+finish date" field in the completion banner. Changing it recalculates the
+frozen score, and the correction sticks — the daily sync honours it instead
+of stamping the derived guess back over it every morning.
 
 Completion is a reflection of the data, never a one-way door: if someone
 un-checks a task or clears a finish date, the stamp is removed and the

@@ -134,6 +134,48 @@ export async function updateEmployeeRole(employeeId, role) {
   if (error) throw error;
 }
 
+// ---------- Managing which projects appear ----------
+
+// Ressio's project list, cached by the daily sync job. The website can't
+// call Ressio directly (that connection only exists inside an AI session),
+// so it reads this instead. Worst case it's a day stale.
+export async function getRessioProjects() {
+  const { data, error } = await supabase.from("ressio_projects").select("*").order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getAllProjectsIncludingArchived() {
+  const { data, error } = await supabase.from("projects").select("*").order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addProjectFromRessio({ ressioId, name, client, type, startDate }) {
+  const { data, error } = await supabase.rpc("add_project_from_ressio", {
+    p_ressio_id: ressioId, p_name: name, p_client: client, p_type: type, p_start: startDate,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// Corrects a project's completion date when the real one differs from the
+// last activity in the app. Admin-only, enforced in the database.
+export async function setCompletionDate(projectId, date) {
+  const { data, error } = await supabase.rpc("set_completion_date", {
+    p_project_id: projectId, p_date: date,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function setProjectArchived(projectId, archived) {
+  const { error } = await supabase.rpc("set_project_archived", {
+    p_project_id: projectId, p_archived: archived,
+  });
+  if (error) throw error;
+}
+
 export async function updateMilestone(milestoneId, fields) {
   const { error } = await supabase.from("project_milestones").update(fields).eq("id", milestoneId);
   if (error) throw error;
