@@ -117,7 +117,7 @@ function Nav({ employee }) {
 }
 
 // ---------- Login ----------
-function Login() {
+function Login({ deniedFor }) {
   return html`
     <div class="login-wrap">
       <div class="login-card">
@@ -125,7 +125,9 @@ function Login() {
         <div class="login-title">Project Health Dashboard</div>
         <div class="login-sub">Sign in to see where every build stands.</div>
         <button class="btn-primary" onClick=${() => api.signInWithGoogle()}>Sign in with Google</button>
-        <div class="login-note">Restricted to ${"@stack.llc"} accounts.</div>
+        ${deniedFor
+          ? html`<div class="login-note login-denied">${deniedFor} isn't on the Stack Built team list. Ask Danny to add you, then try again.</div>`
+          : html`<div class="login-note">For Stack Built staff. Use your ${"@stack.llc"} account, or the address Danny added you under.</div>`}
       </div>
       <div class="login-footer">The Foundry · Logan, Utah</div>
     </div>
@@ -683,7 +685,7 @@ function Team({ employee }) {
   const [projects, setProjects] = useState(null);
   const [error, setError] = useState(null);
   const [savingId, setSavingId] = useState(null);
-  const [draft, setDraft] = useState({ name: "", email: "", role: "PROJECT_MANAGER" });
+  const [draft, setDraft] = useState({ name: "", email: "", role: "PROJECT_MANAGER", notifyEmail: "" });
   const [adding, setAdding] = useState(false);
 
   const reload = useCallback(async () => {
@@ -705,14 +707,18 @@ function Team({ employee }) {
   async function onAdd(e) {
     e.preventDefault();
     if (!draft.name.trim() || !draft.email.trim()) { setError("Name and email are both needed."); return; }
-    if (!draft.email.trim().toLowerCase().endsWith("@stack.llc")) {
-      setError("Email has to be an @stack.llc address — that's what the sign-in is restricted to.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft.email.trim())) {
+      setError("That doesn't look like a valid email address.");
+      return;
+    }
+    if (draft.notifyEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft.notifyEmail.trim())) {
+      setError("The reminders address doesn't look like a valid email.");
       return;
     }
     setAdding(true);
     await run(async () => {
       await api.addEmployee(draft);
-      setDraft({ name: "", email: "", role: "PROJECT_MANAGER" });
+      setDraft({ name: "", email: "", role: "PROJECT_MANAGER", notifyEmail: "" });
     });
     setAdding(false);
   }
@@ -725,12 +731,15 @@ function Team({ employee }) {
         <div class="panel-title">Add someone</div>
         <div class="ink-muted" style=${{ fontSize: "12.5px", marginBottom: "14px" }}>
           You don't have to wait for people to sign in. Add them here and their tasks and job assignments work straight away — when they do sign in with Google, they land on the record you already made.
+          Leave "Reminders to" blank unless someone reads their mail somewhere other than their ${"@stack.llc"} address.
         </div>
         <form class="add-person" onSubmit=${onAdd}>
           <input class="cell-input" placeholder="Full name" value=${draft.name}
             onInput=${(e) => setDraft({ ...draft, name: e.target.value })} />
-          <input class="cell-input" placeholder="name@stack.llc" type="email" value=${draft.email}
+          <input class="cell-input" placeholder="Sign-in email" type="email" value=${draft.email}
             onInput=${(e) => setDraft({ ...draft, email: e.target.value })} />
+          <input class="cell-input" placeholder="Reminders to (optional)" type="email" value=${draft.notifyEmail}
+            onInput=${(e) => setDraft({ ...draft, notifyEmail: e.target.value })} />
           <select class="cell-input" value=${draft.role}
             onChange=${(e) => setDraft({ ...draft, role: e.target.value })}>
             ${Object.keys(ROLE_LABELS).map((r) => html`<option value=${r} selected=${r === draft.role}>${ROLE_LABELS[r]}</option>`)}
@@ -742,7 +751,7 @@ function Team({ employee }) {
       <div class="surface panel">
         <div class="panel-title">People</div>
         <table class="schedule-table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Reminders to</th><th>Role</th><th></th></tr></thead>
           <tbody>
             ${rows.map((p) => {
               const isSelf = p.id === employee.id;
@@ -754,6 +763,11 @@ function Team({ employee }) {
                     ${jobs > 0 && html`<span class="ink-muted" style=${{ fontSize: "12px" }}> · PM on ${jobs} job${jobs === 1 ? "" : "s"}</span>`}
                   </td>
                   <td class="ink-muted">${p.email}</td>
+                  <td>
+                    <input class="cell-input" type="email" placeholder="same as email"
+                      value=${p.notify_email ?? ""}
+                      onChange=${(e) => run(() => api.setNotifyEmail(p.id, e.target.value))} />
+                  </td>
                   <td>
                     ${isSelf
                       ? html`<span>${ROLE_LABELS[p.role] ?? p.role} <span class="ink-muted" style=${{ fontSize: "12px" }}>· that's you</span></span>`
@@ -820,18 +834,19 @@ function AppShell() {
     return api.onAuthChange((s) => setSession(s));
   }, []);
 
+  const [authError, setAuthError] = useState(null);
   useEffect(() => {
-    if (session) {
-      const email = session.user.email || "";
-      if (!email.endsWith("@stack.llc")) {
-        alert("Only @stack.llc accounts can use this dashboard.");
+    if (!session) { setEmployee(null); setAuthError(null); return; }
+    // Who may use the dashboard: anyone on an @stack.llc address, plus
+    // anyone an admin has explicitly added to the team list. The database
+    // enforces the same rule (is_stack_employee) — this check just gives a
+    // clear message instead of a page full of empty tables.
+    api.ensureEmployeeRecord(session)
+      .then((emp) => { setEmployee(emp); setAuthError(null); })
+      .catch(() => {
+        setAuthError(session.user.email || "That account");
         api.signOut();
-        return;
-      }
-      api.ensureEmployeeRecord(session).then(setEmployee);
-    } else {
-      setEmployee(null);
-    }
+      });
   }, [session]);
 
   // Stamp the current page onto <body> so the stylesheet can pick which
@@ -850,7 +865,7 @@ function AppShell() {
   }, [pageKey]);
 
   if (session === undefined) return html`<div class="loading">Loading…</div>`;
-  if (!session) return html`<${Login} />`;
+  if (!session) return html`<${Login} deniedFor=${authError} />`;
   if (!employee) return html`<div class="loading">Setting up your account…</div>`;
 
   let body;

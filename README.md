@@ -175,9 +175,27 @@ A job with nobody assigned shows up for *every* PM rather than
 disappearing — unassigned work should be loud, not silent.
 
 **Adding people without them signing in.** The Team page has an "Add
-someone" form: name, email, role. Their assignments work immediately, and
-when they eventually sign in with Google they land on the record you
-already made rather than creating a duplicate (matched on email).
+someone" form: name, sign-in email, reminders address (optional), role.
+Their assignments work immediately, and when they eventually sign in with
+Google they land on the record you already made rather than creating a
+duplicate (matched on email).
+
+**Who is allowed to sign in.** Anyone on an `@stack.llc` address, plus
+anyone an admin has explicitly added to the team list. That second half
+exists so crew without a company mailbox can still use the dashboard with
+whatever Google account they already have. It is not "any Google account"
+— someone has to be on the list first, and only an admin can add them.
+
+The practical consequence: **new people must be added on the Team page
+before they can sign in.** Previously any `@stack.llc` address let itself
+in and became a Project Manager automatically. That auto-create is gone,
+because with the list now acting as the gate, quietly adding whoever turns
+up would defeat the point.
+
+**Reminders to a different address.** Each person has an optional
+"Reminders to" address. Leave it blank and their morning email goes to
+their sign-in address; fill it in and it goes there instead. Nothing about
+sign-in changes — it only redirects the mail.
 
 **The top bar.** Portfolio, PM Checklist and Selections are the daily
 pages. Schedule Source, Templates and Team are configuration — looked at

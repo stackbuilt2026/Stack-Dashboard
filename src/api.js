@@ -21,26 +21,19 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
-// Called once right after sign-in. Creates the employee's own row if it's
-// their first time (defaulting to PROJECT_MANAGER — an admin can change
-// this later directly in Supabase's Table Editor), otherwise just reads
-// their existing row. RLS only allows a user to insert/update their own
-// row (matched by email), so this can't be used to create or edit anyone
-// else's account.
+// Called once right after sign-in. Looks the person up by email and
+// returns their record. It deliberately does NOT create one: the team list
+// is now the gate on who may use the dashboard, so an address nobody has
+// added is refused rather than quietly granted access. Admins add people
+// on the Team page.
+//
+// Matching is on email, which is why someone added ahead of time keeps
+// their role and job assignments when they first sign in.
 export async function ensureEmployeeRecord(session) {
-  const email = session.user.email;
-  const { data: existing } = await supabase.from("employees").select("*").eq("email", email).maybeSingle();
-  if (existing) return existing;
-
-  const row = {
-    id: "emp_" + crypto.randomUUID(),
-    email,
-    name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || email,
-    role: "PROJECT_MANAGER",
-    created_at: new Date().toISOString(),
-  };
-  const { data, error } = await supabase.from("employees").insert(row).select().single();
+  const email = (session.user.email || "").toLowerCase();
+  const { data, error } = await supabase.from("employees").select("*").ilike("email", email).maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("not on the team list");
   return data;
 }
 
@@ -101,14 +94,24 @@ export async function getEmployees() {
 // Adds someone who hasn't signed in yet. When they later sign in with
 // Google, ensureEmployeeRecord matches on email and they land on THIS row
 // — keeping the role and any job assignments already set for them.
-export async function addEmployee({ name, email, role }) {
+export async function addEmployee({ name, email, role, notifyEmail }) {
   const { error } = await supabase.from("employees").insert({
     id: "emp_" + crypto.randomUUID(),
     name: name.trim(),
     email: email.trim().toLowerCase(),
+    notify_email: notifyEmail?.trim() ? notifyEmail.trim().toLowerCase() : null,
     role,
     created_at: new Date().toISOString(),
   });
+  if (error) throw error;
+}
+
+// Where this person's reminders go, when that differs from the address
+// that identifies them. Blank means "same as their main address".
+export async function setNotifyEmail(employeeId, notifyEmail) {
+  const { error } = await supabase.from("employees")
+    .update({ notify_email: notifyEmail?.trim() ? notifyEmail.trim().toLowerCase() : null })
+    .eq("id", employeeId);
   if (error) throw error;
 }
 
