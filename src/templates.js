@@ -28,8 +28,13 @@ export const SINGLE_FAMILY_TASKS = [
   { key: "t-garage", triggerKey: "excavation", title: "Finalize garage door style & color", role: "DESIGN", deliverable: "Garage door spec", leadTimeDays: 7 },
   { key: "t-windows", triggerKey: "foundation", title: "Order Windows (confirm sizes, egress & tempering, place order with Sunpro)", role: "PROJECT_MANAGER", deliverable: "Window order placed", leadTimeDays: 3, critical: true },
   { key: "t-radon", triggerKey: "foundation", title: "Confirm radon system install with flatwork contractor", role: "PROJECT_MANAGER", deliverable: "Radon system confirmed", leadTimeDays: 2 },
+  // Framing starting is the cue to get the cabinet shop on the calendar —
+  // so this hangs off FOUNDATION, the milestone whose completion starts
+  // framing, rather than off framing finishing.
+  { key: "t-cabinet-measure", triggerKey: "foundation", title: "Schedule cabinet company to measure for cabinets", role: "PROJECT_MANAGER", deliverable: "Measure appointment on the calendar", leadTimeDays: 7 },
   { key: "t-ductwork", triggerKey: "framing", title: "Plan ductwork path with mechanical contractor to minimize basement ceiling drops", role: "PROJECT_MANAGER", deliverable: "Duct layout approved", leadTimeDays: 3 },
-  { key: "t-lighting", triggerKey: "framing", title: "Order light fixtures, bulbs & smart home kit", role: "PROJECT_MANAGER", deliverable: "Products delivered to Stack", leadTimeDays: 5 },
+  { key: "t-lighting", triggerKey: "framing", title: "Order light fixtures & light bulbs", role: "DESIGN", deliverable: "Fixtures & bulbs delivered to Stack", leadTimeDays: 5 },
+  { key: "t-smarthome", triggerKey: "framing", title: "Order smart home kits", role: "PROJECT_MANAGER", assigneeEmail: "ashton@stack.llc", deliverable: "Smart home kit delivered to Stack", leadTimeDays: 5 },
   { key: "t-doors", triggerKey: "framing", title: "Order interior & exterior doors (Sunpro)", role: "PROJECT_MANAGER", deliverable: "Door order placed", leadTimeDays: 3, critical: true },
   { key: "t-roughin-check", triggerKey: "mep", title: "Verify conduit/CAT5/hose bib/outlet rough-ins (internet, EV charger, WAP, ice-dam outlet)", role: "PROJECT_MANAGER", deliverable: "Rough-in checklist signed off", leadTimeDays: 2 },
   { key: "t-owner-walk", triggerKey: "mep", title: "Schedule exterior color selection walkthrough with homeowner", role: "DESIGN", deliverable: "Walkthrough scheduled", leadTimeDays: 4 },
@@ -37,8 +42,39 @@ export const SINGLE_FAMILY_TASKS = [
   { key: "t-cabinets", triggerKey: "insulation", title: "Confirm cabinet & countertop install dates with supplier", role: "PROJECT_MANAGER", deliverable: "Install dates confirmed", leadTimeDays: 5 },
   { key: "t-final-inspect", triggerKey: "finishes", title: "Schedule final inspections (building, electrical, mechanical, plumbing)", role: "PROJECT_MANAGER", deliverable: "Inspections scheduled", leadTimeDays: 3, critical: true },
   { key: "t-punchlist", triggerKey: "finishes", title: "Prepare homeowner walkthrough punch list", role: "PROJECT_MANAGER", deliverable: "Punch list drafted", leadTimeDays: 5 },
-  { key: "t-closing", triggerKey: "closing", title: "Confirm closing date & documents with title company", role: "PROJECT_MANAGER", deliverable: "Closing confirmed", leadTimeDays: 2 },
+  { key: "t-contractor-check", triggerKey: "finishes", title: "Contractor checklist review", role: "PROJECT_MANAGER", deliverable: "All items reviewed & signed off", leadTimeDays: 7 },
+  { key: "t-closing", triggerKey: "closing", title: "Confirm closing date & documents with title company", role: "PROJECT_MANAGER", assigneeEmail: "danny@stack.llc", deliverable: "Closing confirmed", leadTimeDays: 2 },
 ];
+
+// Tasks that open into their own review list. The key is the task's key;
+// each sub-item's `key` is what gets stored when someone ticks it, so
+// rewrite a `label` whenever you like but leave the `key` alone — change a
+// key and anything already ticked against the old one comes back unticked.
+//
+// Adding or removing items here takes effect on every project immediately,
+// including ones already underway. That's deliberate: unlike the task list
+// itself, a review checklist is "how we inspect a house today", not a
+// commitment made when the job started.
+export const TASK_SUBITEMS = {
+  "t-contractor-check": [
+    { key: "bulbs",       label: "All light bulbs are installed" },
+    { key: "attic",       label: "Attic access is lowered off the screws" },
+    { key: "knobs",       label: "All door knobs, towel knobs, etc. installed and operable" },
+    { key: "thermostats", label: "Thermostats are working properly" },
+    { key: "trades",      label: "Electricians, mechanical contractors and plumbers are complete" },
+    { key: "roofvents",   label: "Roof vents are painted black" },
+    { key: "garagedoors", label: "Garage doors have been cleaned and wiped down" },
+    { key: "garagewash",  label: "Garage has been pressure washed (if needed)" },
+    { key: "basement",    label: "Basement is swept and clean" },
+    { key: "debris",      label: "All construction items removed from the house" },
+    { key: "touchup",     label: "Touch-up paint is complete" },
+    { key: "flooring",    label: "Flooring is all complete" },
+  ],
+};
+
+export function subitemsFor(taskKey) {
+  return TASK_SUBITEMS[taskKey] ?? null;
+}
 
 export const APARTMENT_MILESTONES = [
   { key: "entitlement", name: "Entitlement & Permitting", order: 0, durationDays: 30 },

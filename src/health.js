@@ -101,7 +101,11 @@ export function scoreProject(milestones, tasks, now = new Date()) {
   let score = 100;
   const deductions = [];
   if (varianceDays > 0) {
-    const d = Math.min(varianceDays * 5, 45);
+    // 2 points a day. The 45-point floor means the schedule penalty stops
+    // growing once a job is ~23 days late — past that, the score can still
+    // fall on overdue tasks, but lateness alone won't drive it to zero.
+    // Change this and refresh_project_completion() in the database together.
+    const d = Math.min(varianceDays * 2, 45);
     score -= d;
     deductions.push({ label: `${varianceDays} day${varianceDays === 1 ? "" : "s"} behind schedule`, points: d });
   }

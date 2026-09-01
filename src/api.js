@@ -181,6 +181,17 @@ export async function updateMilestone(milestoneId, fields) {
   if (error) throw error;
 }
 
+// The ticked items on a review task (the contractor checklist). Stores only
+// the item KEYS — the wording lives in src/templates.js, so rewording an
+// item never loses anyone's ticks.
+export async function setTaskSubitems(taskId, keys) {
+  const { error } = await supabase
+    .from("task_instances")
+    .update({ subitems_done: keys })
+    .eq("id", taskId);
+  if (error) throw error;
+}
+
 // ---------- Project selections ----------
 
 export async function getAllSelections() {

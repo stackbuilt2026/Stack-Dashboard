@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "preact/hooks";
 import htm from "htm";
 import { supabase } from "./supabase.js";
 import * as api from "./api.js";
-import { templatesFor, SINGLE_FAMILY_MILESTONES, SINGLE_FAMILY_TASKS, APARTMENT_MILESTONES, APARTMENT_TASKS } from "./templates.js";
+import { templatesFor, subitemsFor, SINGLE_FAMILY_MILESTONES, SINGLE_FAMILY_TASKS, APARTMENT_MILESTONES, APARTMENT_TASKS } from "./templates.js";
 import { scoreProject, scoreCompletedProject, deriveMilestones, deriveTasks, STATUS_META, ROLE_LABELS, ROLE_COLORS, fmt, fmtShort } from "./health.js";
 import { SELECTION_CATEGORIES, ALL_SELECTION_KEYS } from "./selections.js";
 
@@ -42,10 +42,62 @@ function CompleteBadge() {
   return html`<span class="badge badge-complete"><span class="dot dot-check">✓</span>Complete</span>`;
 }
 
-function RoleTag({ role }) {
-  return html`<span class="role-tag">
-    <span class="role-dot"></span>${ROLE_LABELS[role] ?? role}
+// Shows WHO the task belongs to. A task named to a specific person shows
+// that person; otherwise it falls back to the role, which routes to whoever
+// holds it (for PM work, the PM on that particular job).
+function RoleTag({ role, name }) {
+  return html`<span class=${"role-tag" + (name ? " role-tag-person" : "")}>
+    <span class="role-dot"></span>${name ?? ROLE_LABELS[role] ?? role}
   </span>`;
+}
+
+// A review task that opens into its own list of things to check. The labels
+// come from templates.js; only the ticks are stored, so editing the list
+// never orphans a project.
+function SubChecklist({ task, onSaved }) {
+  const items = subitemsFor(task.key);
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState(() => new Set(task.subitems_done ?? []));
+  const [saving, setSaving] = useState(false);
+  // If the row reloads underneath us (someone else ticked something), take
+  // the server's word for it rather than showing a stale local copy.
+  useEffect(() => { setDone(new Set(task.subitems_done ?? [])); }, [JSON.stringify(task.subitems_done ?? [])]);
+  if (!items) return null;
+
+  const count = items.filter((i) => done.has(i.key)).length;
+  const allDone = count === items.length;
+
+  async function toggle(key) {
+    const next = new Set(done);
+    next.has(key) ? next.delete(key) : next.add(key);
+    setDone(next);
+    setSaving(true);
+    try { await api.setTaskSubitems(task.id, [...next]); onSaved?.(); }
+    catch (e) { setDone(new Set(task.subitems_done ?? [])); alert(e.message || String(e)); }
+    finally { setSaving(false); }
+  }
+
+  return html`
+    <div class="subchecklist">
+      <button type="button" class=${"sub-toggle" + (open ? " open" : "")}
+        aria-expanded=${open ? "true" : "false"}
+        onClick=${(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}>
+        <span class="sub-caret">${open ? "\u25be" : "\u25b8"}</span>
+        <span class=${"sub-count" + (allDone ? " all-done" : "")}>${count} of ${items.length} reviewed</span>
+        ${saving && html`<span class="ink-muted sub-saving">saving…</span>`}
+      </button>
+      ${open && html`
+        <div class="sub-items">
+          ${items.map((i) => html`
+            <label class=${"sub-item" + (done.has(i.key) ? " done" : "")} onClick=${(e) => e.stopPropagation()}>
+              <input type="checkbox" checked=${done.has(i.key)} onChange=${() => toggle(i.key)} />
+              <span>${i.label}</span>
+            </label>
+          `)}
+        </div>
+      `}
+    </div>
+  `;
 }
 
 function Nav({ employee }) {
@@ -225,17 +277,20 @@ function Portfolio() {
 // ---------- Project detail ----------
 function ProjectDetail({ id, employee }) {
   const [data, setData] = useState(null);
-  const [pmName, setPmName] = useState(null);
+  const [people, setPeople] = useState([]);
   const reload = useCallback(async () => {
-    const detail = await api.getProjectDetail(id);
+    const [detail, team] = await Promise.all([
+      api.getProjectDetail(id),
+      api.getEmployees().catch(() => []),
+    ]);
     setData(detail);
-    if (detail.project?.project_manager_id) {
-      const people = await api.getEmployees().catch(() => []);
-      setPmName(people.find((p) => p.id === detail.project.project_manager_id)?.name ?? null);
-    } else setPmName(null);
+    setPeople(team);
   }, [id]);
   useEffect(() => { reload(); }, [reload]);
   if (!data || !data.project) return html`<div class="loading">Loading…</div>`;
+
+  const nameFor = (empId) => people.find((p) => p.id === empId)?.name ?? null;
+  const pmName = nameFor(data.project.project_manager_id);
 
   const health = data.project.completed_at
     ? { ...scoreCompletedProject(data.project), ...(() => { const live = scoreProject(data.milestones, data.tasks); return { derivedMilestones: live.derivedMilestones, derivedTasks: live.derivedTasks, current: live.current }; })() }
@@ -330,6 +385,7 @@ function ProjectDetail({ id, employee }) {
             <div class="task-group">
               <div class="task-group-label">Triggered by: ${m.name}</div>
               ${list.map((t) => html`
+                <div class="task-row-wrap">
                 <label class="task-row ${t.status === "ACTIVE" && t.dueDate && Date.now() > t.dueDate ? "overdue" : ""} ${t.status === "LOCKED" ? "locked" : ""}">
                   <input type="checkbox" checked=${t.status === "DONE"} disabled=${t.status === "LOCKED"} onChange=${() => onToggle(t)} />
                   <div class="task-body">
@@ -339,8 +395,10 @@ function ProjectDetail({ id, employee }) {
                       ${t.status === "LOCKED" ? " · locked until milestone completes" : t.dueDate ? html` · due ${fmtShort(t.dueDate)}${t.status === "ACTIVE" && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical-ink)" }}>overdue</span>` : ""}` : ""}
                     </div>
                   </div>
-                  <${RoleTag} role=${t.role} />
+                  <${RoleTag} role=${t.role} name=${nameFor(t.assignee_id)} />
                 </label>
+                ${t.status !== "LOCKED" && html`<${SubChecklist} task=${t} onSaved=${reload} />`}
+                </div>
               `)}
             </div>
           `;
@@ -350,12 +408,16 @@ function ProjectDetail({ id, employee }) {
   `;
 }
 
-// Who owns a task. Project-manager work goes to the PM assigned to THAT
-// job; everything else goes to whoever holds the role. A job with no PM
-// assigned shows for every PM, so work can't silently go unowned.
+// Who owns a task, in order of precedence: a named person wins; otherwise
+// project-manager work goes to the PM assigned to THAT job; otherwise it
+// goes to whoever holds the role. A job with no PM assigned shows for every
+// PM, so work can't silently go unowned.
 // This mirrors digest_data() in the database — if you change one, change
 // both, or the checklist and the morning email will disagree.
 function ownsTask(task, project, employee) {
+  // A task named to a person belongs to that person and nobody else —
+  // this beats every role rule below it.
+  if (task.assignee_id) return task.assignee_id === employee.id;
   if (task.role === "PROJECT_MANAGER") {
     return employee.role === "PROJECT_MANAGER" &&
       (project.project_manager_id === employee.id || !project.project_manager_id);
@@ -371,7 +433,15 @@ function Checklist({ employee }) {
   // Defaults to your own work. An admin oversees everyone, so they start
   // on the full list instead.
   const [mineOnly, setMineOnly] = useState(employee.role !== "ADMIN");
-  const reload = useCallback(() => api.getAllTasksWithProjects().then(setState), []);
+  const [people, setPeople] = useState([]);
+  const reload = useCallback(async () => {
+    const [rows, team] = await Promise.all([
+      api.getAllTasksWithProjects(),
+      api.getEmployees().catch(() => []),
+    ]);
+    setState(rows);
+    setPeople(team);
+  }, []);
   useEffect(() => { reload(); }, [reload]);
   if (!state) return html`<div class="loading">Loading…</div>`;
 
@@ -386,6 +456,7 @@ function Checklist({ employee }) {
     derivedT.filter((t) => t.status !== "LOCKED").forEach((t) => rows.push({ ...t, project: p }));
   });
 
+  const nameFor = (empId) => people.find((p) => p.id === empId)?.name ?? null;
   const mineCount = rows.filter((t) => ownsTask(t, t.project, employee) && t.status !== "DONE").length;
 
   const filtered = rows
@@ -415,6 +486,7 @@ function Checklist({ employee }) {
       </div>
       <div class="surface checklist-panel">
         ${filtered.map((t) => html`
+          <div class="task-row-wrap">
           <label class="task-row ${t.status === "ACTIVE" && t.dueDate && Date.now() > t.dueDate ? "overdue" : ""}">
             <input type="checkbox" checked=${t.status === "DONE"} onChange=${() => onToggle(t)} />
             <div class="task-body">
@@ -424,8 +496,10 @@ function Checklist({ employee }) {
                 ${t.status === "ACTIVE" && t.dueDate && Date.now() > t.dueDate ? html` · <span style=${{ color: "var(--critical-ink)" }}>overdue</span>` : ""}
               </div>
             </div>
-            <${RoleTag} role=${t.role} />
+            <${RoleTag} role=${t.role} name=${nameFor(t.assignee_id)} />
           </label>
+          <${SubChecklist} task=${t} onSaved=${reload} />
+          </div>
         `)}
         ${filtered.length === 0 && html`<div class="empty">${mineOnly ? "Nothing on your plate right now." : "Nothing here."}</div>`}
       </div>
@@ -453,9 +527,12 @@ function Templates() {
           <div class="template-row" style=${{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
             <div>
               <div>${task.title} ${task.critical && html`<span class="long-lead">long-lead</span>`}</div>
-              <div class="ink-muted" style=${{ fontSize: "12px" }}>Triggered by "${task.triggerKey}" · ${task.leadTimeDays}d lead time</div>
+              <div class="ink-muted" style=${{ fontSize: "12px" }}>
+                Triggered by "${task.triggerKey}" · ${task.leadTimeDays}d lead time
+                ${subitemsFor(task.key) && html` · ${subitemsFor(task.key).length}-item review list`}
+              </div>
             </div>
-            <${RoleTag} role=${task.role} />
+            <${RoleTag} role=${task.role} name=${task.assigneeEmail ?? null} />
           </div>
         `)}
       </div>

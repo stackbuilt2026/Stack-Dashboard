@@ -247,6 +247,36 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
   border: 1px solid var(--gridline); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
 }
 .role-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-muted); flex-shrink: 0; }
+/* A task pinned to a named person reads brighter than a role, so you can
+   tell at a glance which items have an actual name against them. */
+.role-tag-person { color: var(--ink); border-color: var(--ink-muted); }
+.role-tag-person .role-dot { background: var(--ink); }
+
+/* ---------- Review sub-checklist (e.g. Contractor checklist review) ---------- */
+.sub-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--surface-3); border: 1px solid var(--gridline);
+  color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 4px 12px 4px 9px; cursor: pointer;
+}
+.sub-toggle:hover { color: var(--ink); border-color: var(--ink-muted); }
+.sub-caret { font-size: 10px; line-height: 1; }
+.sub-count.all-done { color: var(--good-ink); }
+.sub-saving { font-size: 11px; font-weight: 400; }
+
+.sub-items {
+  margin-top: 8px; padding: 6px 2px 2px 4px;
+  border-left: 2px solid var(--gridline);
+  display: grid; gap: 2px;
+}
+.sub-item {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 13px; color: var(--ink-2); line-height: 1.4;
+  padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.sub-item:hover { background: var(--surface-2); color: var(--ink); }
+.sub-item input { margin: 1px 0 0; flex-shrink: 0; cursor: pointer; }
+.sub-item.done span { color: var(--ink-muted); text-decoration: line-through; }
 
 /* ---------- Detail page ---------- */
 .back-link { display: inline-block; margin-bottom: 14px; font-size: 13px; color: var(--ink-muted); }
@@ -288,6 +318,11 @@ body[data-page="selections"] { --page-photo: url("assets/bg-living.jpg"); }
 .task-row.locked { opacity: .45; cursor: default; }
 .task-row input[type="checkbox"] { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--ink); flex-shrink: 0; cursor: pointer; }
 .task-body { flex: 1; min-width: 0; }
+/* The review list is a SIBLING of the task's label, never a child — a
+   nested label would swallow clicks meant for the task's own checkbox. */
+.task-row-wrap { margin-bottom: 6px; }
+.task-row-wrap > .task-row { margin-bottom: 0; }
+.task-row-wrap > .subchecklist { margin: 6px 0 0 42px; }
 .task-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .task-meta { font-size: 12px; margin-top: 3px; }
 .long-lead {
